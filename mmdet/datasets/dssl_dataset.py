@@ -14,9 +14,10 @@ from mmdet.datasets.registry import DATASETS
 class DsslDataset(CustomDataset):
     CLASSES = None
 
-    def __init__(self, ann_file, pipeline, test_mode=False):
+    def __init__(self, ann_file, pipeline, load_and_dump_config_name, test_mode=False):
         self._load_config_filename = ann_file
         self._test_mode = test_mode
+        self._load_and_dump_config_name = load_and_dump_config_name
         self._pipeline = Compose(pipeline)
         self._trassir_composer: TrassirComposer = self.load_trassir_composer(self._load_config_filename)
 
@@ -28,9 +29,10 @@ class DsslDataset(CustomDataset):
 
     def load_trassir_composer(self, load_config_filename):
         trassir_load_config = load_module(load_config_filename)
-        DsslDataset.CLASSES = tuple(trassir_load_config.load_and_dump_config['categories'].values())
+        load_and_dump_config = trassir_load_config.__getattribute__(self._load_and_dump_config_name)
+        DsslDataset.CLASSES = tuple(load_and_dump_config['categories'].values())
         try:
-            return create_composer(load_and_dump_configs=trassir_load_config.load_and_dump_config,
+            return create_composer(load_and_dump_configs=load_and_dump_config,
                                    composer_config=trassir_load_config.composer_config)
         except:
             error(f'Be sure that you had run "./tools/trassir_data_config.py" to create data dump')
