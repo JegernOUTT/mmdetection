@@ -87,15 +87,18 @@ data = dict(
     workers_per_gpu=4,
     train=dict(
         type=dataset_type,
-        ann_file='./tools/trassir_data_config.py',
+        ann_file='./tools/dssl_data_loader.py',
+        load_and_dump_config_name='load_and_dump_train_config',
         pipeline=train_pipeline),
     val=dict(
         type=dataset_type,
-        ann_file='./tools/trassir_data_config.py',
+        ann_file='./tools/dssl_data_loader.py',
+        load_and_dump_config_name='load_and_dump_test_config',
         pipeline=test_pipeline),
     test=dict(
         type=dataset_type,
-        ann_file='./tools/trassir_data_config.py',
+        ann_file='./tools/dssl_data_loader.py',
+        load_and_dump_config_name='load_and_dump_test_config',
         pipeline=test_pipeline))
 # optimizer
 optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001)

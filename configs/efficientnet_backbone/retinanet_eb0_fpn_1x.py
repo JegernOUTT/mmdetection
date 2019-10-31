@@ -5,13 +5,10 @@ model = dict(
     backbone=dict(
         type='EfficientNet',
         model_type='efficientnet-b0',  # Possible types: ['efficientnet-b0' ... 'efficientnet-b7']
-        out_indices=(0, 2, 4, 6),  # Possible indices: [0 1 2 3 4 5 6]
-
-        style='pytorch'),
+        out_indices=(0, 1, 3, 6)),  # Possible indices: [0 1 2 3 4 5 6],
     neck=dict(
         type='FPN',
-        # Possible channels: [16 24 40 80 112 192 320] by indices: [0 1 2 3 4 5 6]
-        in_channels=[16, 40, 112, 320],
+        in_channels=[24, 40, 112, 1280],
         out_channels=256,
         start_level=1,
         add_extra_convs=True,
@@ -60,7 +57,7 @@ img_norm_cfg = dict(
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    dict(type='Resize', img_scale=(1333, 800), keep_ratio=True),
+    dict(type='Resize', img_scale=(896, 640), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.5),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='Pad', size_divisor=32),
@@ -71,7 +68,7 @@ test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
         type='MultiScaleFlipAug',
-        img_scale=(1333, 800),
+        img_scale=(896, 640),
         flip=False,
         transforms=[
             dict(type='Resize', keep_ratio=True),
@@ -83,7 +80,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=2,
+    imgs_per_gpu=4,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,

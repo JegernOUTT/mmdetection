@@ -11,7 +11,7 @@ from torch.nn import functional as F
 from torch.nn.modules.batchnorm import _BatchNorm
 from torch.utils import model_zoo
 
-from mmdet.models import BACKBONES
+from ..registry import BACKBONES
 
 # Parameters for an individual model block
 BlockArgs = collections.namedtuple('BlockArgs', [
@@ -366,6 +366,7 @@ class EfficientNet(nn.Module):
             image_size=image_size,
             out_indices=out_indices
         )
+        self.set_swish(memory_efficient=True)
 
     def _create(self,
                 blocks_args=None,
