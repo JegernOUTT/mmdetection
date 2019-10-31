@@ -27,7 +27,9 @@ model = dict(
         norm_cfg=dict(type='BN'),
         alpha=0.54,
         hm_weight=1.,
-        wh_weight=5.))
+        wh_weight=5.,
+        max_objs=256,
+        with_deformable=True))
 cudnn_benchmark = True
 # training and testing settings
 train_cfg = dict(

@@ -1,14 +1,14 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from mmcv.cnn import normal_init, kaiming_init
-import numpy as np
 
-from mmdet.ops import ModulatedDeformConvPack
 from mmdet.core import multi_apply, bbox_areas, force_fp32
 from mmdet.core.anchor.guided_anchor_target import calc_region
 from mmdet.models.losses import ct_focal_loss, giou_loss
 from mmdet.models.utils import (build_norm_layer, bias_init_with_prob, ConvModule)
+from mmdet.ops import ModulatedDeformConvPack
 from mmdet.ops.nms import simple_nms
 from .anchor_head import AnchorHead
 from ..registry import HEADS
@@ -37,7 +37,8 @@ class TTFHead(AnchorHead):
                  beta=0.54,
                  hm_weight=1.,
                  wh_weight=5.,
-                 max_objs=128):
+                 max_objs=128,
+                 with_deformable=True):
         super(AnchorHead, self).__init__()
         assert len(planes) in [2, 3, 4]
         shortcut_num = min(len(inplanes) - 1, len(planes))
@@ -56,6 +57,7 @@ class TTFHead(AnchorHead):
         self.hm_weight = hm_weight
         self.wh_weight = wh_weight
         self.max_objs = max_objs
+        self.with_deformable = with_deformable
         self.fp16_enabled = False
 
         self.down_ratio = base_down_ratio // 2 ** len(planes)
@@ -99,12 +101,14 @@ class TTFHead(AnchorHead):
         return shortcut_layers
 
     def build_upsample(self, inplanes, planes, norm_cfg=None):
-        mdcn = ModulatedDeformConvPack(inplanes, planes, 3, stride=1,
-                                       padding=1, dilation=1, deformable_groups=1)
-        up = nn.UpsamplingBilinear2d(scale_factor=2)
+        if self.with_deformable:
+            mdcn = ModulatedDeformConvPack(inplanes, planes, 3, stride=1,
+                                           padding=1, dilation=1, deformable_groups=1)
+        else:
+            mdcn = nn.Conv2d(inplanes, planes, 3, stride=1, padding=1, dilation=1)
+        up = nn.Upsample(scale_factor=2, mode='nearest')
 
-        layers = []
-        layers.append(mdcn)
+        layers = [mdcn]
         if norm_cfg:
             layers.append(build_norm_layer(norm_cfg, planes)[1])
         layers.append(nn.ReLU(inplace=True))
