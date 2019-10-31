@@ -81,7 +81,7 @@ test_pipeline = [
             dict(type='Collect', keys=['img']),
         ])
 ]
-# Be sure that you had run "./tools/trassir_data_config.py" to create data dump
+# Be sure that you had run "./tools/dssl_data_loader.py" to create data dump
 data = dict(
     imgs_per_gpu=8,
     workers_per_gpu=4,
