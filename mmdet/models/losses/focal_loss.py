@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -40,6 +41,34 @@ def sigmoid_focal_loss(pred,
         weight = weight.view(-1, 1)
     loss = weight_reduce_loss(loss, weight, reduction, avg_factor)
     return loss
+
+def ct_focal_loss(pred, gt, gamma=2.0):
+    """
+    Focal loss used in CornerNet & CenterNet. Note that the values in gt (label) are in [0, 1] since
+    gaussian is used to reduce the punishment and we treat [0, 1) as neg example.
+
+    Args:
+        pred: tensor, any shape.
+        gt: tensor, same as pred.
+        gamma: gamma in focal loss.
+
+    Returns:
+
+    """
+    pos_inds = gt.eq(1).float()
+    neg_inds = gt.lt(1).float()
+
+    neg_weights = torch.pow(1 - gt, 4)  # reduce punishment
+    pos_loss = -torch.log(pred) * torch.pow(1 - pred, gamma) * pos_inds
+    neg_loss = -torch.log(1 - pred) * torch.pow(pred, gamma) * neg_weights * neg_inds
+
+    num_pos = pos_inds.float().sum()
+    pos_loss = pos_loss.sum()
+    neg_loss = neg_loss.sum()
+
+    if num_pos == 0:
+        return neg_loss
+    return (pos_loss + neg_loss) / num_pos
 
 
 @LOSSES.register_module
