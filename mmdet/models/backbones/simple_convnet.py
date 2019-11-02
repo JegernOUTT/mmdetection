@@ -3,7 +3,7 @@ from typing import Sequence, Optional
 import torch.nn as nn
 
 from ..registry import BACKBONES
-from ..utils import build_conv_layer
+from ..utils import ConvModule
 
 
 @BACKBONES.register_module
@@ -19,29 +19,32 @@ class ConvnetLprVehicle(nn.Module):
         self._kwargs = dict(conv_cfg=None, norm_cfg=self._norm_cfg, activation=self._activation)
 
         # 2
-        self.conv_1 = build_conv_layer(None, 3, 16, kernel_size=7, stride=2, padding=3, bias=False, **self._kwargs)
+        self.conv_1 = ConvModule(3, 16, kernel_size=7, stride=2, padding=3, bias=False, **self._kwargs)
 
         # 4
-        self.conv_2 = build_conv_layer(None, 16, 32, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
-        self.conv_3 = build_conv_layer(None, 32, 32, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
+        self.conv_2 = ConvModule(16, 32, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
+        self.conv_3 = ConvModule(32, 32, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
 
         # 8
-        self.conv_4 = build_conv_layer(None, 32, 64, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
-        self.conv_5 = build_conv_layer(None, 64, 128, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
+        self.conv_4 = ConvModule(32, 64, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
+        self.conv_5 = ConvModule(64, 128, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
 
         # 16
-        self.conv_6 = build_conv_layer(None, 128, 128, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
-        self.conv_7 = build_conv_layer(None, 128, 256, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
+        self.conv_6 = ConvModule(128, 128, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
+        self.conv_7 = ConvModule(128, 256, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
 
         # 32
-        self.conv_8 = build_conv_layer(None, 256, 256, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
-        self.conv_9 = build_conv_layer(None, 256, 512, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
+        self.conv_8 = ConvModule(256, 256, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
+        self.conv_9 = ConvModule(256, 512, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
 
     def _get_by_idxes(self, data):
         return tuple([
             data[idx]
             for idx in self._out_indices
         ])
+
+    def init_weights(self, pretrained=None):
+        pass
 
     def forward(self, x):
         x = skip_2 = self.conv_1(x)
@@ -74,21 +77,24 @@ class ConvnetLprPlate(nn.Module):
         self._kwargs = dict(conv_cfg=None, norm_cfg=self._norm_cfg, activation=self._activation)
 
         # 2
-        self.conv_1 = build_conv_layer(None, 3, 16, kernel_size=7, stride=2, padding=3, bias=False, **self._kwargs)
+        self.conv_1 = ConvModule(3, 16, kernel_size=7, stride=2, padding=3, bias=False, **self._kwargs)
 
         # 4
-        self.conv_2 = build_conv_layer(None, 16, 32, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
-        self.conv_3 = build_conv_layer(None, 32, 64, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
+        self.conv_2 = ConvModule(16, 32, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
+        self.conv_3 = ConvModule(32, 64, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
 
         # 8
-        self.conv_4 = build_conv_layer(None, 64, 128, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
-        self.conv_5 = build_conv_layer(None, 128, 128, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
+        self.conv_4 = ConvModule(64, 128, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
+        self.conv_5 = ConvModule(128, 128, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
 
     def _get_by_idxes(self, data):
         return tuple([
             data[idx]
             for idx in self._out_indices
         ])
+
+    def init_weights(self, pretrained=None):
+        pass
 
     def forward(self, x):
         x = skip_2 = self.conv_1(x)
