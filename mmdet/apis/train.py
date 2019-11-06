@@ -96,8 +96,13 @@ def build_optimizer(model, optimizer_cfg):
     paramwise_options = optimizer_cfg.pop('paramwise_options', None)
     # if no paramwise option is specified, just use the global setting
     if paramwise_options is None:
-        return obj_from_dict(optimizer_cfg, torch.optim,
-                             dict(params=model.parameters()))
+        try:
+            optimizer_type = optimizer_cfg.pop('type')
+            optimizer_cls = getattr(torch.optim, optimizer_type)
+        except:
+            import catalyst.contrib.optimizers
+            optimizer_cls = getattr(catalyst.contrib.optimizers, optimizer_type)
+        return optimizer_cls(params=model.parameters(), **optimizer_cfg)
     else:
         assert isinstance(paramwise_options, dict)
         # get base lr and weight decay
@@ -136,7 +141,12 @@ def build_optimizer(model, optimizer_cfg):
 
             params.append(param_group)
 
-        optimizer_cls = getattr(torch.optim, optimizer_cfg.pop('type'))
+        try:
+            optimizer_type = optimizer_cfg.pop('type')
+            optimizer_cls = getattr(torch.optim, optimizer_type)
+        except:
+            import catalyst.contrib.optimizers
+            optimizer_cls = getattr(catalyst.contrib.optimizers, optimizer_type)
         return optimizer_cls(params, **optimizer_cfg)
 
 

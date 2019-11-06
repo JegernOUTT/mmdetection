@@ -62,6 +62,10 @@ class BaseDetector(nn.Module):
         pass
 
     @abstractmethod
+    def forward_export(self, imgs):
+        pass
+
+    @abstractmethod
     def simple_test(self, img, img_meta, **kwargs):
         pass
 
