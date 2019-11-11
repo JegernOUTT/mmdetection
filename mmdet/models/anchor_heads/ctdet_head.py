@@ -243,7 +243,7 @@ class CenternetDetectionHead(AnchorHead):
         if 'debug' in cfg and cfg['debug']:
             self._debug_data(*targets[:3], image_metas, cfg)
         hm_loss, hm_offset_loss, wh_loss = self._loss_calc(outputs, *targets)
-        return {'losses/hm_loss': hm_loss, 'losses/hm_offset_loss': hm_loss, 'losses/wh_loss': wh_loss}
+        return {'losses/hm_loss': hm_loss, 'losses/hm_offset_loss': hm_offset_loss, 'losses/wh_loss': wh_loss}
 
     @force_fp32(apply_to=('outputs',))
     def get_bboxes(self, outputs, img_metas, cfg, rescale=False, top_k=100):
@@ -423,54 +423,55 @@ class CenternetDetectionHead(AnchorHead):
         reg_mask = np.zeros((self._max_objs,), dtype=np.uint8)
 
         # Sort by area, large bboxes are in front
-        bboxes_gt = bboxes_gt[:self._max_objs]
-        indices = np.argsort(-(bboxes_gt[:, 2] - bboxes_gt[:, 0]) * (bboxes_gt[:, 3] - bboxes_gt[:, 1]))
-        for bbox_idx in indices:
-            x1, y1, x2, y2 = bboxes_gt[bbox_idx]
-            x, y, w, h = (x2 + x1) / 2, (y2 + y1) / 2, x2 - x1, y2 - y1
-            x, y, w, h = map(lambda x: x / self._output_stride, (x, y, w, h))
+        if len(bboxes_gt) > 0:
+            bboxes_gt = bboxes_gt[:self._max_objs]
+            indices = np.argsort(-(bboxes_gt[:, 2] - bboxes_gt[:, 0]) * (bboxes_gt[:, 3] - bboxes_gt[:, 1]))
+            for bbox_idx in indices:
+                x1, y1, x2, y2 = bboxes_gt[bbox_idx]
+                x, y, w, h = (x2 + x1) / 2, (y2 + y1) / 2, x2 - x1, y2 - y1
+                x, y, w, h = map(lambda x: x / self._output_stride, (x, y, w, h))
 
-            cat_id = labels_gt[bbox_idx] - 1
-            x_idx, y_idx = map(int, [x, y])
-            x_offset, y_offset = x - x_idx, y - y_idx
+                cat_id = labels_gt[bbox_idx] - 1
+                x_idx, y_idx = map(int, [x, y])
+                x_offset, y_offset = x - x_idx, y - y_idx
 
-            if not self._ellipse_gaussian:
-                radius = self._calc_gaussian_radius((x, y, x + w, y + h))
-                radius = max(0, int(radius))
+                if not self._ellipse_gaussian:
+                    radius = self._calc_gaussian_radius((x, y, x + w, y + h))
+                    radius = max(0, int(radius))
 
-                diameter = 2 * radius + 1
-                gaussian = self._get_gaussian_2d((diameter, diameter), sigma=diameter / 6)
+                    diameter = 2 * radius + 1
+                    gaussian = self._get_gaussian_2d((diameter, diameter), sigma=diameter / 6)
 
-                left, right = min(x_idx, radius), min(feat_w - x_idx, radius + 1)
-                top, bottom = min(y_idx, radius), min(feat_h - y_idx, radius + 1)
-                w_radius, h_radius = radius, radius
-            else:
-                w_radius, h_radius = self._calc_ellipse_gaussian_radiuses((x, y, x + w, y + h))
-                w_radius, h_radius = max(0, int(w_radius)), max(0, int(h_radius))
+                    left, right = min(x_idx, radius), min(feat_w - x_idx, radius + 1)
+                    top, bottom = min(y_idx, radius), min(feat_h - y_idx, radius + 1)
+                    w_radius, h_radius = radius, radius
+                else:
+                    w_radius, h_radius = self._calc_ellipse_gaussian_radiuses((x, y, x + w, y + h))
+                    w_radius, h_radius = max(0, int(w_radius)), max(0, int(h_radius))
 
-                diameter_h, diameter_w = 2 * h_radius + 1, 2 * w_radius + 1
-                sigma_x = diameter_w / 6
-                sigma_y = diameter_h / 6
-                gaussian = self._get_ellipse_gaussian_2d((diameter_w, diameter_h),
-                                                         sigma_x=sigma_x, sigma_y=sigma_y)
+                    diameter_h, diameter_w = 2 * h_radius + 1, 2 * w_radius + 1
+                    sigma_x = diameter_w / 6
+                    sigma_y = diameter_h / 6
+                    gaussian = self._get_ellipse_gaussian_2d((diameter_w, diameter_h),
+                                                             sigma_x=sigma_x, sigma_y=sigma_y)
 
-                left, right = min(x_idx, w_radius), min(feat_w - x_idx, w_radius + 1)
-                top, bottom = min(y_idx, h_radius), min(feat_h - y_idx, h_radius + 1)
+                    left, right = min(x_idx, w_radius), min(feat_w - x_idx, w_radius + 1)
+                    top, bottom = min(y_idx, h_radius), min(feat_h - y_idx, h_radius + 1)
 
-            masked_hm = hm[cat_id, y_idx - top:y_idx + bottom, x_idx - left:x_idx + right]
-            masked_gaussian = gaussian[h_radius - top:h_radius + bottom, w_radius - left:w_radius + right]
-            masked_hm = np.maximum(masked_hm, masked_gaussian)
+                masked_hm = hm[cat_id, y_idx - top:y_idx + bottom, x_idx - left:x_idx + right]
+                masked_gaussian = gaussian[h_radius - top:h_radius + bottom, w_radius - left:w_radius + right]
+                masked_hm = np.maximum(masked_hm, masked_gaussian)
 
-            hm[cat_id, y_idx - top:y_idx + bottom, x_idx - left:x_idx + right] = masked_hm
-            hm_offset[bbox_idx] = [x_offset, y_offset]
-            if self._exp_wh:
-                eps = np.finfo(np.float32).eps
-                wh[bbox_idx] = np.log([w + eps, h + eps])
-            else:
-                wh[bbox_idx] = [w, h]
+                hm[cat_id, y_idx - top:y_idx + bottom, x_idx - left:x_idx + right] = masked_hm
+                hm_offset[bbox_idx] = [x_offset, y_offset]
+                if self._exp_wh:
+                    eps = np.finfo(np.float32).eps
+                    wh[bbox_idx] = np.log([w + eps, h + eps])
+                else:
+                    wh[bbox_idx] = [w, h]
 
-            ind[bbox_idx] = y_idx * feat_w + x_idx
-            reg_mask[bbox_idx] = 1
+                ind[bbox_idx] = y_idx * feat_w + x_idx
+                reg_mask[bbox_idx] = 1
 
         hm, hm_offset, wh, ind, reg_mask = map(lambda x: torch.from_numpy(x).to(device=device),
                                                (hm, hm_offset, wh, ind[..., np.newaxis], reg_mask[..., np.newaxis]))
