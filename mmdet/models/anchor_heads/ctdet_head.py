@@ -12,6 +12,46 @@ from .anchor_head import AnchorHead
 from ..registry import HEADS
 
 
+def _tranpose_and_gather_feat(feat, ind):
+    def _gather_feat(feat, ind, mask=None):
+        dim = feat.size(2)
+        ind = ind.expand(ind.size(0), ind.size(1), dim)
+        feat = feat.gather(1, ind)
+        if mask is not None:
+            mask = mask.unsqueeze(2).expand_as(feat)
+            feat = feat[mask].view(-1, dim)
+        return feat
+
+    feat = feat.permute(0, 2, 3, 1).contiguous()
+    feat = feat.view(feat.size(0), -1, feat.size(3))
+    feat = _gather_feat(feat, ind)
+    return feat
+
+
+class ShortcutConv2d(nn.Module):
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 kernel_sizes,
+                 paddings,
+                 activation_last=False):
+        super(ShortcutConv2d, self).__init__()
+        assert len(kernel_sizes) == len(paddings)
+
+        layers = []
+        for i, (kernel_size, padding) in enumerate(zip(kernel_sizes, paddings)):
+            inc = in_channels if i == 0 else out_channels
+            layers.append(nn.Conv2d(inc, out_channels, kernel_size, padding=padding))
+            if i < len(kernel_sizes) - 1 or activation_last:
+                layers.append(nn.ReLU(inplace=True))
+
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, x):
+        y = self.layers(x)
+        return y
+
+
 class FocalLoss(nn.Module):
     def __init__(self):
         super(FocalLoss, self).__init__()
@@ -47,25 +87,6 @@ class FocalLoss(nn.Module):
         return self._neg_loss(out, target)
 
 
-def _gather_feat(feat, ind, mask=None):
-    dim = feat.size(2)
-    # ind  = ind.unsqueeze(2).expand(ind.size(0), ind.size(1), dim)
-    ind = ind.expand(ind.size(0), ind.size(1), dim)
-    feat = feat.gather(1, ind)
-    if mask is not None:
-        mask = mask.unsqueeze(2).expand_as(feat)
-        feat = feat[mask]
-        feat = feat.view(-1, dim)
-    return feat
-
-
-def _tranpose_and_gather_feat(feat, ind):
-    feat = feat.permute(0, 2, 3, 1).contiguous()
-    feat = feat.view(feat.size(0), -1, feat.size(3))
-    feat = _gather_feat(feat, ind)
-    return feat
-
-
 class RegL1Loss(nn.Module):
     def __init__(self):
         super(RegL1Loss, self).__init__()
@@ -77,13 +98,6 @@ class RegL1Loss(nn.Module):
         loss = F.l1_loss(pred * mask, target * mask, reduction='sum')
         loss = loss / (mask.sum() + 1e-4)
         return loss
-
-
-def fill_fc_weights(layers):
-    for m in layers.modules():
-        if isinstance(m, nn.Conv2d):
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
 
 
 @HEADS.register_module
@@ -147,9 +161,7 @@ class CenternetDetectionHead(AnchorHead):
         self._exp_wh = exp_wh
 
         self._output_stride = base_down_ratio // 2 ** len(planes)
-        self._num_fg = num_classes - 1
         self._hm_offset_planes, self._wh_planes = 2, 2
-        self.base_loc = None
 
         if self._require_upsampling:
             # repeat upsampling n times. 32x to 4x by default.
@@ -260,8 +272,8 @@ class CenternetDetectionHead(AnchorHead):
             topk_scores, topk_inds = torch.topk(scores.view(batch, cat, -1), topk)
 
             topk_inds = topk_inds % (height * width)
-            topk_ys = (topk_inds / width).int().float()
-            topk_xs = (topk_inds % width).int().float()
+            topk_ys = (topk_inds / width).floor()
+            topk_xs = (topk_inds % width).floor()
 
             # both are (batch, topk). select topk from 80 * topk
             topk_score, topk_ind = torch.topk(topk_scores.view(batch, -1), topk)
@@ -279,7 +291,7 @@ class CenternetDetectionHead(AnchorHead):
         hm = _nms(hm)
         if self._exp_wh:
             wh = torch.exp(wh)
-        scores, inds, clses, ys, xs = _topk(hm, topk=top_k)
+        scores, inds, classes, ys, xs = _topk(hm, topk=top_k)
 
         # hm_offset
         hm_offset = hm_offset.permute(0, 2, 3, 1).contiguous()
@@ -296,7 +308,7 @@ class CenternetDetectionHead(AnchorHead):
         xs = xs.view(batch, top_k, 1) + hm_offset[:, :, [0]]
         ys = ys.view(batch, top_k, 1) + hm_offset[:, :, [1]]
 
-        clses = clses.view(batch, top_k, 1).float()
+        classes = classes.view(batch, top_k, 1).float()
         scores = scores.view(batch, top_k, 1)
         bboxes = torch.cat([xs - wh[..., [0]] / 2, ys - wh[..., [1]] / 2,
                             xs + wh[..., [0]] / 2, ys + wh[..., [1]] / 2], dim=2)
@@ -310,7 +322,7 @@ class CenternetDetectionHead(AnchorHead):
 
             scores_per_img = scores_per_img[scores_keep]
             bboxes_per_img = bboxes[idx][scores_keep]
-            labels_per_img = clses[idx][scores_keep]
+            labels_per_img = classes[idx][scores_keep]
             img_shape = img_metas[idx]['pad_shape']
             bboxes_per_img[:, 0::2] = bboxes_per_img[:, 0::2].clamp(min=0, max=img_shape[1] - 1)
             bboxes_per_img[:, 1::2] = bboxes_per_img[:, 1::2].clamp(min=0, max=img_shape[0] - 1)
@@ -535,27 +547,3 @@ class CenternetDetectionHead(AnchorHead):
             for idx, c in enumerate(range(self._num_fg)):
                 cv2.imshow(f'xy_heatmap_{c}', (hm_cpu[batch_idx, idx, ...][..., np.newaxis] * 255).astype(np.uint8))
             cv2.waitKey(0)
-
-
-class ShortcutConv2d(nn.Module):
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 kernel_sizes,
-                 paddings,
-                 activation_last=False):
-        super(ShortcutConv2d, self).__init__()
-        assert len(kernel_sizes) == len(paddings)
-
-        layers = []
-        for i, (kernel_size, padding) in enumerate(zip(kernel_sizes, paddings)):
-            inc = in_channels if i == 0 else out_channels
-            layers.append(nn.Conv2d(inc, out_channels, kernel_size, padding=padding))
-            if i < len(kernel_sizes) - 1 or activation_last:
-                layers.append(nn.ReLU(inplace=True))
-
-        self.layers = nn.Sequential(*layers)
-
-    def forward(self, x):
-        y = self.layers(x)
-        return y
