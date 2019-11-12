@@ -66,13 +66,8 @@ class DsslDataset(CustomDataset):
                 continue
             return data
 
-    def prepare_train_img(self, idx):
+    def get_ann_info(self, idx):
         img_annotations = self._trassir_composer[idx]
-        img_info = {
-            'filename': str(img_annotations.image_info.filename),
-            'width': img_annotations.image_info.size.width,
-            'height': img_annotations.image_info.size.height,
-        }
         bbox_count = len(img_annotations.objects)
         ann_info = {
             'bboxes': np.array([obj.bbox.xyxy(image_size=img_annotations.image_info.size)
@@ -80,8 +75,19 @@ class DsslDataset(CustomDataset):
                                dtype=np.float32).reshape((bbox_count, 4)),
             'labels': np.array([obj.category_id + 1 for obj in img_annotations.objects],
                                dtype=np.int64).reshape((bbox_count,)),
-            'bboxes_ignore': np.zeros((0, 4), dtype=np.float32)
+            'bboxes_ignore': np.zeros((0, 4), dtype=np.float32),
+            'labels_ignore': np.zeros((0, ), dtype=np.float32)
         }
+        return ann_info
+
+    def prepare_train_img(self, idx):
+        img_annotations = self._trassir_composer[idx]
+        img_info = {
+            'filename': str(img_annotations.image_info.filename),
+            'width': img_annotations.image_info.size.width,
+            'height': img_annotations.image_info.size.height,
+        }
+        ann_info = self.get_ann_info(idx=idx)
         results = dict(img_info=img_info, ann_info=ann_info)
         self._pre_pipeline(results)
         return self._pipeline(results)
