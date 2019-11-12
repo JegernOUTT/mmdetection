@@ -7,6 +7,7 @@ import pycocotools.mask as maskUtils
 import torch.nn as nn
 
 from mmdet.core import auto_fp16, get_classes, tensor2imgs
+from torch import Tensor
 
 
 class BaseDetector(nn.Module):
@@ -88,6 +89,9 @@ class BaseDetector(nn.Module):
                 augs (multiscale, flip, etc.) and the inner list indicates
                 images in a batch
         """
+        if isinstance(imgs, Tensor):
+            imgs = [imgs]
+            img_metas = [img_metas]
         for var, name in [(imgs, 'imgs'), (img_metas, 'img_metas')]:
             if not isinstance(var, list):
                 raise TypeError('{} must be a list, but got {}'.format(
