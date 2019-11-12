@@ -178,10 +178,10 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=300,
     warmup_ratio=1.0 / 3,
-    step=[60, 65])
+    step=[120, 130])
 checkpoint_config = dict(interval=10)
 # runtime settings
-total_epochs = 70
+total_epochs = 140
 device_ids = range(8)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
