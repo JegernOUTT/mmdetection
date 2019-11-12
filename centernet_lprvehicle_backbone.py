@@ -94,7 +94,7 @@ albu_train_transforms = [
         num_holes=3,
         max_h_size=5,
         max_w_size=5,
-        fill_value=0),
+        fill_value=0.5),
 ]
 dataset_type = 'DsslDataset'
 img_norm_cfg = dict(
@@ -114,8 +114,8 @@ train_pipeline = [
              'img': 'image',
              'gt_bboxes': 'bboxes'
          }),
-    dict(type='Resize', img_scale=(160, 96), keep_ratio=False),
-    dict(type='Pad', size_divisor=32, pad_val=0.5),
+    dict(type='Resize', img_scale=(160, 128), keep_ratio=True),
+    dict(type='Pad', size=(160, 160), pad_val=0.5),
     dict(type='RandomFlip', flip_ratio=0.5),
 
     dict(
@@ -143,8 +143,8 @@ test_pipeline = [
         img_scale=(160, 128),
         flip=False,
         transforms=[
-            dict(type='Resize', img_scale=(160, 96), keep_ratio=False),
-            dict(type='Pad', size_divisor=32, pad_val=0.5),
+            dict(type='Resize', img_scale=(160, 128), keep_ratio=True),
+            dict(type='Pad', size=(160, 160), pad_val=0.5),
             dict(type='RandomFlip'),
             dict(type='Normalize', **img_norm_cfg),
             dict(type='ImageToTensor', keys=['img']),
