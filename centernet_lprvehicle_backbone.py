@@ -40,17 +40,12 @@ test_cfg = dict(
     score_thr=0.01,
     max_per_img=100)
 # dataset settings
-safe_crop_transform = [
-    dict(type='RandomSizedBBoxSafeCrop',
-         height=100,
-         width=300)
-]
 albu_train_transforms = [
     dict(
         type='ShiftScaleRotate',
-        shift_limit=0.15,
-        scale_limit=0.15,
-        rotate_limit=10,
+        shift_limit=0.05,
+        scale_limit=0.05,
+        rotate_limit=3,
         interpolation=0,
         p=0.5),
     dict(
@@ -102,22 +97,9 @@ img_norm_cfg = dict(
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    dict(type='Albu', transforms=safe_crop_transform,
-         bbox_params=dict(
-             type='BboxParams',
-             format='pascal_voc',
-             label_fields=['gt_labels'],
-             min_area=0.02,
-             min_visibility=0.0,
-             filter_lost_elements=True),
-         keymap={
-             'img': 'image',
-             'gt_bboxes': 'bboxes'
-         }),
-    dict(type='Resize', img_scale=(160, 128), keep_ratio=True),
-    dict(type='Pad', size=(160, 160), pad_val=0.5),
-    dict(type='RandomFlip', flip_ratio=0.5),
-
+    dict(type='Resize', img_scale=(160, 96), keep_ratio=False),
+    dict(type='Pad', size_divisor=32, pad_val=128),
+    dict(type='RandomFlip', flip_ratio=0.0),
     dict(
         type='Albu',
         transforms=albu_train_transforms,
@@ -140,11 +122,11 @@ test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
         type='MultiScaleFlipAug',
-        img_scale=(160, 128),
+        img_scale=(160, 96),
         flip=False,
         transforms=[
-            dict(type='Resize', img_scale=(160, 128), keep_ratio=True),
-            dict(type='Pad', size=(160, 160), pad_val=0.5),
+            dict(type='Resize', img_scale=(160, 128), keep_ratio=False),
+            dict(type='Pad', size_divisor=32, pad_val=128),
             dict(type='RandomFlip'),
             dict(type='Normalize', **img_norm_cfg),
             dict(type='ImageToTensor', keys=['img']),
