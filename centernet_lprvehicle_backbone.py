@@ -146,7 +146,7 @@ data = dict(
         load_and_dump_config_name='load_and_dump_test_config',
         pipeline=test_pipeline))
 # optimizer
-optimizer = dict(type='RAdam', lr=7e-4)
+optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
@@ -154,10 +154,10 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=300,
     warmup_ratio=1.0 / 3,
-    step=[90, 120])
+    step=[60, 65])
 checkpoint_config = dict(interval=10)
 # runtime settings
-total_epochs = 140
+total_epochs = 70
 device_ids = range(8)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
