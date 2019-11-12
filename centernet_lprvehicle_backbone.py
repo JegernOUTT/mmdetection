@@ -41,6 +41,7 @@ test_cfg = dict(
     max_per_img=100)
 # dataset settings
 albu_train_transforms = [
+    dict(type='HorizontalFlip'),
     dict(
         type='ShiftScaleRotate',
         shift_limit=0.05,
@@ -89,16 +90,18 @@ albu_train_transforms = [
         num_holes=3,
         max_h_size=5,
         max_w_size=5,
-        fill_value=0.5),
+        fill_value=0.5)
 ]
+albu_resized_crop = [
+    dict(type='RandomResizedCrop', height=96, width=160, scale=(0.6, 1.)),
+    dict(type='PadIfNeeded', min_height=96, min_width=160, border_mode=0, value=[128, 128, 128])]
 dataset_type = 'DsslDataset'
 img_norm_cfg = dict(
     mean=[0., 0., 0.], std=[255., 255., 255.], to_rgb=True)
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    dict(type='Resize', img_scale=(160, 96), keep_ratio=False),
-    dict(type='Pad', size_divisor=32, pad_val=128),
+    dict(type='Resize', img_scale=(160, 96), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(
         type='Albu',
@@ -107,13 +110,28 @@ train_pipeline = [
             type='BboxParams',
             format='pascal_voc',
             label_fields=['gt_labels'],
-            min_area=0.02,
-            min_visibility=0.0,
+            min_area=0.005,
+            min_visibility=0.2,
             filter_lost_elements=True),
         keymap={
             'img': 'image',
             'gt_bboxes': 'bboxes'
         }),
+    dict(
+        type='Albu',
+        transforms=albu_resized_crop,
+        bbox_params=dict(
+            type='BboxParams',
+            format='pascal_voc',
+            label_fields=['gt_labels'],
+            min_area=0.005,
+            min_visibility=0.2,
+            filter_lost_elements=True),
+        keymap={
+            'img': 'image',
+            'gt_bboxes': 'bboxes'
+        }),
+    dict(type='Pad', size_divisor=32, pad_val=128),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels']),
@@ -125,9 +143,9 @@ test_pipeline = [
         img_scale=(160, 96),
         flip=False,
         transforms=[
-            dict(type='Resize', img_scale=(160, 128), keep_ratio=False),
+            dict(type='Resize', img_scale=(160, 96), keep_ratio=True),
             dict(type='Pad', size_divisor=32, pad_val=128),
-            dict(type='RandomFlip'),
+            dict(type='RandomFlip', flip_ratio=0.0),
             dict(type='Normalize', **img_norm_cfg),
             dict(type='ImageToTensor', keys=['img']),
             dict(type='Collect', keys=['img']),
