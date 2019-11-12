@@ -4,8 +4,8 @@
 
 ## Data preparation (**data_loader.py** creation)
 - Think about your training / val / test sets, classes, datasets, and other "data" stuff
-- Use detector_utils/data_loader to load data locally (you do not have to copy all you pic data on server but it the preferred way)
-- Make runnable script with data loading configs. See and use **mmdetection/tools/dssl_data_loader.py** for reference
+- Use detector_utils/data_loader to load data locally (you do not have to copy all you pic data on server but it is the preferred way)
+- Make runnable script with data loading configs. See and use **mmdetection/tools/dssl_data_loader.py**
 
 ## Experiments
 - Create your own branch with "speaking" name
