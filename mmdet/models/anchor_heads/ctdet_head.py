@@ -272,8 +272,8 @@ class CenternetDetectionHead(AnchorHead):
             topk_scores, topk_inds = torch.topk(scores.view(batch, cat, -1), topk)
 
             topk_inds = topk_inds % (height * width)
-            topk_ys = (topk_inds / width).floor()
-            topk_xs = (topk_inds % width).floor()
+            topk_ys = (topk_inds / width).int().float()
+            topk_xs = (topk_inds % width).int().float()
 
             # both are (batch, topk). select topk from 80 * topk
             topk_score, topk_ind = torch.topk(topk_scores.view(batch, -1), topk)
