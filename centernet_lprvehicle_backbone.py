@@ -42,7 +42,7 @@ test_cfg = dict(
 # dataset settings
 safe_crop_transform = [
     dict(type='RandomSizedBBoxSafeCrop',
-         height=300,
+         height=100,
          width=300)
 ]
 albu_train_transforms = [
@@ -51,14 +51,13 @@ albu_train_transforms = [
         shift_limit=0.15,
         scale_limit=0.15,
         rotate_limit=10,
-        interpolation=1,
+        interpolation=0,
         p=0.5),
     dict(
         type='RandomBrightnessContrast',
         brightness_limit=[0.1, 0.3],
         contrast_limit=[0.1, 0.3],
         p=0.2),
-    dict(type='RandomShadow'),
     dict(
         type='OneOf',
         transforms=[
@@ -95,7 +94,7 @@ albu_train_transforms = [
         num_holes=3,
         max_h_size=5,
         max_w_size=5,
-        fill_value=0.5),
+        fill_value=0),
 ]
 dataset_type = 'DsslDataset'
 img_norm_cfg = dict(
@@ -103,19 +102,20 @@ img_norm_cfg = dict(
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    # dict(type='Albu', transforms=safe_crop_transform,
-    #      bbox_params=dict(
-    #          type='BboxParams',
-    #          format='pascal_voc',
-    #          label_fields=['gt_labels'],
-    #          min_visibility=0.0,
-    #          filter_lost_elements=True),
-    #      keymap={
-    #          'img': 'image',
-    #          'gt_bboxes': 'bboxes'
-    #      }),
-    dict(type='Resize', img_scale=(160, 128), keep_ratio=True),
-    dict(type='Pad', size=(160, 160), pad_val=0.5),
+    dict(type='Albu', transforms=safe_crop_transform,
+         bbox_params=dict(
+             type='BboxParams',
+             format='pascal_voc',
+             label_fields=['gt_labels'],
+             min_area=0.02,
+             min_visibility=0.0,
+             filter_lost_elements=True),
+         keymap={
+             'img': 'image',
+             'gt_bboxes': 'bboxes'
+         }),
+    dict(type='Resize', img_scale=(160, 96), keep_ratio=False),
+    dict(type='Pad', size_divisor=32, pad_val=0.5),
     dict(type='RandomFlip', flip_ratio=0.5),
 
     dict(
@@ -125,6 +125,7 @@ train_pipeline = [
             type='BboxParams',
             format='pascal_voc',
             label_fields=['gt_labels'],
+            min_area=0.02,
             min_visibility=0.0,
             filter_lost_elements=True),
         keymap={
@@ -142,8 +143,8 @@ test_pipeline = [
         img_scale=(160, 128),
         flip=False,
         transforms=[
-            dict(type='Resize', img_scale=(160, 128), keep_ratio=True),
-            dict(type='Pad', size=(160, 160), pad_val=0.5),
+            dict(type='Resize', img_scale=(160, 96), keep_ratio=False),
+            dict(type='Pad', size_divisor=32, pad_val=0.5),
             dict(type='RandomFlip'),
             dict(type='Normalize', **img_norm_cfg),
             dict(type='ImageToTensor', keys=['img']),
