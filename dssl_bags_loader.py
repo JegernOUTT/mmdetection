@@ -8,7 +8,7 @@ __all__ = ['load_and_dump_train_config', 'load_and_dump_test_config', 'composer_
 
 categories = {0: 'item'}
 train_paths = [Path('/mnt/nfs/input/saved_temporary_data/bag_counter/bags_edge_v_8/release/train'),
-               Path('/mnt/nfs/input/saved_temporary_data/bag_counter/bags_edge_v_8/release/val')]
+               Path('/mnt/nfs/Data/empty_shelves/shelves_crops')]
 test_paths = [Path('/mnt/nfs/input/saved_temporary_data/bag_counter/bags_edge_v_8/release/test')]
 
 
@@ -37,7 +37,7 @@ composer_config = {
          'min_size': Size2D(width=32, height=32),
          'max_size': Size2D(width=10000, height=10000)},
         {'type': 'BboxAbsoluteSizeFilter',
-         'min_size': Size2DF(width=0.01, height=0.01),
+         'min_size': Size2DF(width=0.06, height=0.06),
          'max_size': Size2DF(width=1., height=1.)},
     ],
 
