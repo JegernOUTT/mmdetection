@@ -93,7 +93,7 @@ albu_train_transforms = [
         fill_value=0.5)
 ]
 albu_resized_crop = [
-    dict(type='RandomResizedCrop', height=96, width=160, scale=(0.6, 1.)),
+    dict(type='RandomResizedCrop', height=96, width=160, scale=(0.8, 1.)),
     dict(type='PadIfNeeded', min_height=96, min_width=160, border_mode=0, value=[128, 128, 128])]
 dataset_type = 'DsslDataset'
 img_norm_cfg = dict(
@@ -110,7 +110,6 @@ train_pipeline = [
             type='BboxParams',
             format='pascal_voc',
             label_fields=['gt_labels'],
-            min_area=0.005,
             min_visibility=0.2,
             filter_lost_elements=True),
         keymap={
@@ -124,7 +123,6 @@ train_pipeline = [
             type='BboxParams',
             format='pascal_voc',
             label_fields=['gt_labels'],
-            min_area=0.005,
             min_visibility=0.2,
             filter_lost_elements=True),
         keymap={
@@ -178,10 +176,10 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=300,
     warmup_ratio=1.0 / 3,
-    step=[120, 130])
+    step=[60, 65])
 checkpoint_config = dict(interval=10)
 # runtime settings
-total_epochs = 140
+total_epochs = 70
 device_ids = range(8)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
