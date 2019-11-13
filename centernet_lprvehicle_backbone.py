@@ -27,7 +27,7 @@ model = dict(
         num_stacks=1,  # It can be > 1 in backbones such as hourglass
         ellipse_gaussian=True,
         exp_wh=True,
-        hm_weight=1.,
+        hm_weight=0.5,
         hm_offset_weight=1.,
         wh_weight=1.,
         max_objs=128))
@@ -110,7 +110,7 @@ train_pipeline = [
             type='BboxParams',
             format='pascal_voc',
             label_fields=['gt_labels'],
-            min_visibility=0.2,
+            min_visibility=0.01,
             filter_lost_elements=True),
         keymap={
             'img': 'image',
@@ -123,7 +123,7 @@ train_pipeline = [
             type='BboxParams',
             format='pascal_voc',
             label_fields=['gt_labels'],
-            min_visibility=0.2,
+            min_visibility=0.01,
             filter_lost_elements=True),
         keymap={
             'img': 'image',
