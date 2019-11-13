@@ -93,15 +93,15 @@ albu_train_transforms = [
         fill_value=0.5)
 ]
 albu_resized_crop = [
-    dict(type='RandomResizedCrop', height=96, width=160, scale=(0.8, 1.)),
-    dict(type='PadIfNeeded', min_height=96, min_width=160, border_mode=0, value=[128, 128, 128])]
+    dict(type='RandomResizedCrop', height=160, width=256, scale=(0.8, 1.)),
+    dict(type='PadIfNeeded', min_height=160, min_width=256, border_mode=0, value=[128, 128, 128])]
 dataset_type = 'DsslDataset'
 img_norm_cfg = dict(
     mean=[0., 0., 0.], std=[255., 255., 255.], to_rgb=True)
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    dict(type='Resize', img_scale=(160, 96), keep_ratio=True),
+    dict(type='Resize', img_scale=(256, 160), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.0),
     dict(
         type='Albu',
@@ -168,7 +168,7 @@ data = dict(
         load_and_dump_config_name='load_and_dump_test_config',
         pipeline=test_pipeline))
 # optimizer
-optimizer = dict(type='RAdam', lr=0.001)
+optimizer = dict(type='RAdam', lr=0.0007)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
