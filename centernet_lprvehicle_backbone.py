@@ -44,10 +44,11 @@ albu_train_transforms = [
     dict(type='HorizontalFlip'),
     dict(
         type='ShiftScaleRotate',
-        shift_limit=0.05,
-        scale_limit=0.05,
-        rotate_limit=3,
-        interpolation=0,
+        shift_limit=0.5,
+        scale_limit=0.5,
+        rotate_limit=10,
+        border_mode=0,
+        value=[128, 128, 128],
         p=0.5),
     dict(
         type='RandomBrightnessContrast',
@@ -173,7 +174,7 @@ data = dict(
         load_and_dump_config_name='load_and_dump_test_config',
         pipeline=test_pipeline))
 # optimizer
-optimizer = dict(type='RAdam', lr=0.0002)
+optimizer = dict(type='RAdam', lr=0.0005)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
