@@ -93,7 +93,7 @@ albu_train_transforms = [
         max_w_size=10,
         fill_value=[128, 128, 128])
 ]
-width, height = 160, 64
+width, height = 320, 128
 albu_center_crop_pad = [
     dict(type='PadIfNeeded', min_height=max(width, height),
          min_width=max(width, height), border_mode=0, value=[128, 128, 128]),
