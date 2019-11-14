@@ -92,17 +92,21 @@ albu_train_transforms = [
         max_w_size=5,
         fill_value=0.5)
 ]
-albu_resized_crop = [
-    dict(type='RandomResizedCrop', height=160, width=256, scale=(0.8, 1.)),
-    dict(type='PadIfNeeded', min_height=160, min_width=256, border_mode=0, value=[128, 128, 128])]
+width, height = 320, 128
+albu_center_crop_pad = [
+    dict(type='PadIfNeeded', min_height=max(width, height),
+         min_width=max(width, height), border_mode=0, value=[128, 128, 128]),
+    dict(type='CenterCrop', height=height, width=width),
+
+]
 dataset_type = 'DsslDataset'
 img_norm_cfg = dict(
     mean=[0., 0., 0.], std=[255., 255., 255.], to_rgb=True)
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    dict(type='Resize', img_scale=(256, 160), keep_ratio=True),
-    dict(type='RandomFlip', flip_ratio=0.0),
+    dict(type='Resize', img_scale=(width, height), keep_ratio=True),
+    dict(type='RandomFlip', flip_ratio=0.),
     dict(
         type='Albu',
         transforms=albu_train_transforms,
@@ -112,24 +116,25 @@ train_pipeline = [
             label_fields=['gt_labels'],
             min_visibility=0.01,
             filter_lost_elements=True),
+        update_pad_shape=True,
         keymap={
             'img': 'image',
             'gt_bboxes': 'bboxes'
         }),
     dict(
         type='Albu',
-        transforms=albu_resized_crop,
+        transforms=albu_center_crop_pad,
         bbox_params=dict(
             type='BboxParams',
             format='pascal_voc',
             label_fields=['gt_labels'],
             min_visibility=0.01,
             filter_lost_elements=True),
+        update_pad_shape=True,
         keymap={
             'img': 'image',
             'gt_bboxes': 'bboxes'
         }),
-    dict(type='Pad', size_divisor=32, pad_val=128),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels']),
@@ -138,10 +143,10 @@ test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
         type='MultiScaleFlipAug',
-        img_scale=(160, 96),
+        img_scale=(width, height),
         flip=False,
         transforms=[
-            dict(type='Resize', img_scale=(160, 96), keep_ratio=True),
+            dict(type='Resize', keep_ratio=True),
             dict(type='Pad', size_divisor=32, pad_val=128),
             dict(type='RandomFlip', flip_ratio=0.0),
             dict(type='Normalize', **img_norm_cfg),

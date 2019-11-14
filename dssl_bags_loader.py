@@ -37,7 +37,7 @@ composer_config = {
          'min_size': Size2D(width=32, height=32),
          'max_size': Size2D(width=10000, height=10000)},
         {'type': 'BboxAbsoluteSizeFilter',
-         'min_size': Size2DF(width=0.06, height=0.06),
+         'min_size': Size2DF(width=0.04, height=0.04),
          'max_size': Size2DF(width=1., height=1.)},
     ],
 
