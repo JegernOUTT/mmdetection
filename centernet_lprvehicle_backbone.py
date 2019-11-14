@@ -44,8 +44,8 @@ albu_train_transforms = [
     dict(type='HorizontalFlip'),
     dict(
         type='ShiftScaleRotate',
-        shift_limit=[-0.7, 0.7],
-        scale_limit=[-0.1, 0.1],
+        shift_limit=[-0.2, 0.2],
+        scale_limit=[-0.7, 0.7],
         rotate_limit=[-15, 15],
         border_mode=0,
         value=[128, 128, 128],
