@@ -44,16 +44,16 @@ albu_train_transforms = [
     dict(type='HorizontalFlip'),
     dict(
         type='ShiftScaleRotate',
-        shift_limit=0.5,
-        scale_limit=0.5,
-        rotate_limit=10,
+        shift_limit=0.7,
+        scale_limit=0.7,
+        rotate_limit=15,
         border_mode=0,
         value=[128, 128, 128],
         p=0.5),
     dict(
         type='RandomBrightnessContrast',
         brightness_limit=[0.1, 0.3],
-        contrast_limit=[0.1, 0.3],
+        contrast_limit=[0.1, 0.5],
         p=0.2),
     dict(
         type='OneOf',
@@ -76,22 +76,22 @@ albu_train_transforms = [
     dict(
         type='OneOf',
         transforms=[
-            dict(type='Blur', blur_limit=1, p=1.0),
-            dict(type='MedianBlur', blur_limit=1, p=1.0),
+            dict(type='Blur', blur_limit=3, p=1.0),
+            dict(type='MedianBlur', blur_limit=3, p=1.0),
         ],
         p=0.2),
     dict(
         type='CLAHE',
-        p=0.2),
+        p=0.3),
     dict(
         type='ToGray',
         p=0.2),
     dict(
         type='Cutout',
-        num_holes=3,
-        max_h_size=5,
-        max_w_size=5,
-        fill_value=0.5)
+        num_holes=5,
+        max_h_size=10,
+        max_w_size=10,
+        fill_value=[128, 128, 128])
 ]
 width, height = 320, 128
 albu_center_crop_pad = [
