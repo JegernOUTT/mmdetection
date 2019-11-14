@@ -2,13 +2,13 @@ from pathlib import Path
 # model settings
 model = dict(
     type='CenterNet',
-    pretrained=None,
+    pretrained='torchvision://resnet18',
     backbone=dict(
         type='ResNet',
         depth=18,
         num_stages=4,
         out_indices=(0, 1, 2, 3),
-        frozen_stages=0,
+        frozen_stages=1,
         style='pytorch'),
     neck=None,
     bbox_head=dict(
@@ -106,7 +106,7 @@ albu_center_crop_pad = [
 ]
 dataset_type = 'DsslDataset'
 img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+    mean=[0., 0., 0.], std=[255., 255., 255.], to_rgb=True)
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
