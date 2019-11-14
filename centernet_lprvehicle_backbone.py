@@ -2,13 +2,13 @@ from pathlib import Path
 # model settings
 model = dict(
     type='CenterNet',
-    pretrained='torchvision://resnet18',
+    pretrained=None,
     backbone=dict(
         type='ResNet',
         depth=18,
         num_stages=4,
         out_indices=(0, 1, 2, 3),
-        frozen_stages=1,
+        frozen_stages=0,
         style='pytorch'),
     neck=None,
     bbox_head=dict(
