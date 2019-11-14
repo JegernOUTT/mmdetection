@@ -44,9 +44,9 @@ albu_train_transforms = [
     dict(type='HorizontalFlip'),
     dict(
         type='ShiftScaleRotate',
-        shift_limit=0.7,
-        scale_limit=0.7,
-        rotate_limit=15,
+        shift_limit=[-0.7, 0.7],
+        scale_limit=[-0.1, 0.1],
+        rotate_limit=[-15, 15],
         border_mode=0,
         value=[128, 128, 128],
         p=0.5),
@@ -93,7 +93,7 @@ albu_train_transforms = [
         max_w_size=10,
         fill_value=[128, 128, 128])
 ]
-width, height = 320, 128
+width, height = 160, 64
 albu_center_crop_pad = [
     dict(type='PadIfNeeded', min_height=max(width, height),
          min_width=max(width, height), border_mode=0, value=[128, 128, 128]),
