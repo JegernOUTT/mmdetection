@@ -173,7 +173,7 @@ data = dict(
         load_and_dump_config_name='load_and_dump_test_config',
         pipeline=test_pipeline))
 # optimizer
-optimizer = dict(type='RAdam', lr=0.0007)
+optimizer = dict(type='RAdam', lr=0.0002)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
