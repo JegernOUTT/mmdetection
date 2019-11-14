@@ -2,15 +2,19 @@ from pathlib import Path
 # model settings
 model = dict(
     type='CenterNet',
-    pretrained='',
+    pretrained='torchvision://resnet18',
     backbone=dict(
-        type='ConvnetLprVehicle',
-        out_indices=(1, 2, 3, 4)),
+        type='ResNet',
+        depth=18,
+        num_stages=4,
+        out_indices=(0, 1, 2, 3),
+        frozen_stages=1,
+        style='pytorch'),
     neck=None,
     bbox_head=dict(
         type='CenternetDetectionHead',
         require_upsampling=True,
-        inplanes=(32, 64, 128, 256),
+        inplanes=(64, 128, 256, 512),
         planes=(256, 128, 64),
         base_down_ratio=32,
         hm_head_conv=128,
@@ -102,7 +106,7 @@ albu_center_crop_pad = [
 ]
 dataset_type = 'DsslDataset'
 img_norm_cfg = dict(
-    mean=[0., 0., 0.], std=[255., 255., 255.], to_rgb=True)
+    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
