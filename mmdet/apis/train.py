@@ -188,7 +188,8 @@ def _dist_train(model, dataset, cfg, validate=False):
                 CocoDistEvalRecallHook(val_dataset_cfg, **eval_cfg))
         else:
             dataset_type = DATASETS.get(val_dataset_cfg.type)
-            if issubclass(dataset_type, datasets.CocoDataset):
+            if issubclass(dataset_type, datasets.CocoDataset) or \
+                    issubclass(dataset_type, datasets.DsslDataset):
                 runner.register_hook(
                     CocoDistEvalmAPHook(val_dataset_cfg, **eval_cfg))
             else:
