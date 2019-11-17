@@ -136,7 +136,7 @@ class DsslDataset(CustomDataset):
         from pycocotools.coco import COCO
         from pathlib import Path
 
-        output_path = './tmp/coco_dump.json'
+        output_path = './tmp/coco_dump'
         dump_config = get_coco_dump_config(categories=self._categories_dict, verbose=True,
                                            annotations_dump_filename=Path(output_path))
         dump(images_annotations=self._trassir_composer._data, dump_config=dump_config)
