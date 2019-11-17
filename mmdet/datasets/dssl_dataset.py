@@ -118,6 +118,7 @@ class DsslDataset(CustomDataset):
     def coco(self):
         if self._coco is None:
             self._create_coco_wrapper()
+        return self._coco
 
     @property
     def img_ids(self):
