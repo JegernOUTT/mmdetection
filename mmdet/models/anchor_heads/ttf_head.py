@@ -313,6 +313,9 @@ class TTFHead(AnchorHead):
         box_target = gt_boxes.new_ones((self.wh_planes, output_h, output_w)) * -1
         reg_weight = gt_boxes.new_zeros((self.wh_planes // 4, output_h, output_w))
 
+        if len(gt_boxes) == 0:
+            return heatmap, box_target, reg_weight
+
         if self.wh_area_process == 'log':
             boxes_areas_log = bbox_areas(gt_boxes).log()
         elif self.wh_area_process == 'sqrt':
