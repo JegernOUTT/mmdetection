@@ -163,6 +163,9 @@ class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin,
         Returns:
             dict[str, Tensor]: a dictionary of loss components
         """
+        if 'debug' in self.train_cfg and self.train_cfg['debug']:
+            self._debug_data_pipeline(img, img_meta, gt_bboxes, gt_labels)
+
         x = self.extract_feat(img)
 
         losses = dict()
@@ -338,3 +341,28 @@ class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin,
             mask_pred = self.mask_head(mask_feats)
             outs = outs + (mask_pred, )
         return outs
+
+    def _debug_data_pipeline(self,
+                             img, img_metas,
+                             gt_bboxes, gt_labels):
+        import numpy as np
+        from detector_utils import Object, bbox_from_xyxy, Size2D
+        from detector_utils.utils.visualize import draw_bboxes, render_image, RenderMethod
+
+        for img_idx, img in enumerate(img):
+            numpy_img = img.detach().cpu().numpy()
+            img_meta = img_metas[img_idx]
+            mean, std = map(np.array, (img_meta['img_norm_cfg']['mean'], img_meta['img_norm_cfg']['std']))
+            numpy_img = ((np.transpose(numpy_img, (1, 2, 0)) + mean) * std).astype(np.uint8)
+            h, w = numpy_img.shape[:2]
+
+            bboxes = gt_bboxes[img_idx].detach().cpu().numpy()
+            labels = gt_labels[img_idx].detach().cpu().numpy()
+
+            objects = [
+                Object(bbox=bbox_from_xyxy(bbox, image_size=Size2D(width=w, height=h)), category_id=class_idx - 1)
+                for bbox, class_idx in zip(bboxes, labels)
+            ]
+            cat_idxes = range(max(labels))
+            numpy_img = draw_bboxes(numpy_img, objects=objects, categories=dict(zip(cat_idxes, map(str, cat_idxes))))
+            render_image(numpy_img, render_method=RenderMethod.OpenCV)
