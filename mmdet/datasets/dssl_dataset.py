@@ -140,6 +140,6 @@ class DsslDataset(CustomDataset):
         dump_config = get_coco_dump_config(categories=self._categories_dict, verbose=True,
                                            annotations_dump_filename=Path(output_path))
         dump(images_annotations=self._trassir_composer._data, dump_config=dump_config)
-        self._coco = COCO(output_path)
+        self._coco = COCO(f'{output_path}.json')
         self._img_ids = self._coco.getImgIds()
         self._cat_ids = self._coco.getCatIds()
