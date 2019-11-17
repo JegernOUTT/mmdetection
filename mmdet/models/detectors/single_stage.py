@@ -64,7 +64,7 @@ class SingleStageDetector(BaseDetector):
                       gt_bboxes,
                       gt_labels,
                       gt_bboxes_ignore=None):
-        if 'debug' in self.train_cfg.__dict__ and self.train_cfg.debug:
+        if 'debug' in self.train_cfg and self.train_cfg['debug']:
             self._debug_data_pipeline(img, img_metas, gt_bboxes, gt_labels)
         x = self.extract_feat(img)
         outs = self.bbox_head(x)
@@ -101,8 +101,8 @@ class SingleStageDetector(BaseDetector):
         for img_idx, img in enumerate(img):
             numpy_img = img.detach().cpu().numpy()
             img_meta = img_metas[img_idx]
-            mean, std = map(np.array, img_meta['norm_cfg']['mean'], img_meta['norm_cfg']['std'])
-            numpy_img = (np.transpose(numpy_img, (1, 2, 0)) + mean / std).astype(np.uint8)[..., ::-1]
+            mean, std = map(np.array, (img_meta['img_norm_cfg']['mean'], img_meta['img_norm_cfg']['std']))
+            numpy_img = ((np.transpose(numpy_img, (1, 2, 0)) + mean) * std).astype(np.uint8)
             h, w = numpy_img.shape[:2]
 
             bboxes = gt_bboxes[img_idx].detach().cpu().numpy()
