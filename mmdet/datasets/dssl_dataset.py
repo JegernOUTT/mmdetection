@@ -133,9 +133,12 @@ class DsslDataset(CustomDataset):
         return self._cat_ids
 
     def _create_coco_wrapper(self):
-        from detector_utils import dump, get_coco_dump_config
+        from detector_utils import dump, get_coco_dump_config, SimpleSampler
         from pycocotools.coco import COCO
         from pathlib import Path
+
+        assert isinstance(self._trassir_composer._sampler, SimpleSampler), \
+            "You must use SimpleSampler for val/test datasets for valid mAP evaluation"
 
         output_path = './tmp/coco_dump'
         dump_config = get_coco_dump_config(categories=self._categories_dict, verbose=True,
