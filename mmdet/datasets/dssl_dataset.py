@@ -14,15 +14,25 @@ from mmdet.datasets.registry import DATASETS
 class DsslDataset(CustomDataset):
     CLASSES = None
 
-    def __init__(self, ann_file, pipeline, load_and_dump_config_name, test_mode=False):
+    def __init__(self, ann_file, pipeline,
+                 load_and_dump_config_name: str = 'load_and_dump_config',
+                 composer_config_name: str = 'composer_config',
+                 test_mode=False):
         self._load_config_filename = ann_file
         self._test_mode = test_mode
         self._load_and_dump_config_name = load_and_dump_config_name
+        self._composer_config_name = composer_config_name
         self._pipeline = Compose(pipeline)
+        self._categories_dict = {}
         self._trassir_composer: TrassirComposer = self.load_trassir_composer(self._load_config_filename)
 
         if not self._test_mode:
             self._set_group_flag()
+
+        # Need for coco wrapper (CocoMapEval)
+        self._coco = None
+        self._img_ids = None
+        self._cat_ids = None
 
     def __len__(self):
         return len(self._trassir_composer)
@@ -30,10 +40,11 @@ class DsslDataset(CustomDataset):
     def load_trassir_composer(self, load_config_filename):
         trassir_load_config = load_module(load_config_filename)
         load_and_dump_config = trassir_load_config.__getattribute__(self._load_and_dump_config_name)
+        self._categories_dict = load_and_dump_config['categories']
         DsslDataset.CLASSES = tuple(load_and_dump_config['categories'].values())
         try:
             return create_composer(load_and_dump_configs=load_and_dump_config,
-                                   composer_config=trassir_load_config.composer_config)
+                                   composer_config=trassir_load_config.__getattribute__(self._composer_config_name))
         except:
             error(f'Be sure that you had run "./tools/trassir_data_config.py" to create data dump')
             raise
@@ -102,3 +113,37 @@ class DsslDataset(CustomDataset):
         results = dict(img_info=img_info)
         self._pre_pipeline(results)
         return self._pipeline(results)
+
+    @property
+    def coco(self):
+        if self._coco is None:
+            self._create_coco_wrapper()
+        return self._coco
+
+    @property
+    def img_ids(self):
+        if self._coco is None:
+            self._create_coco_wrapper()
+        return self._img_ids
+
+    @property
+    def cat_ids(self):
+        if self._coco is None:
+            self._create_coco_wrapper()
+        return self._cat_ids
+
+    def _create_coco_wrapper(self):
+        from detector_utils import dump, get_coco_dump_config, SimpleSampler
+        from pycocotools.coco import COCO
+        from pathlib import Path
+
+        assert isinstance(self._trassir_composer._sampler, SimpleSampler), \
+            "You must use SimpleSampler for val/test datasets for valid mAP evaluation"
+
+        output_path = './tmp/coco_dump'
+        dump_config = get_coco_dump_config(categories=self._categories_dict, verbose=True,
+                                           annotations_dump_filename=Path(output_path))
+        dump(images_annotations=self._trassir_composer._data, dump_config=dump_config)
+        self._coco = COCO(f'{output_path}.json')
+        self._img_ids = self._coco.getImgIds()
+        self._cat_ids = self._coco.getCatIds()
