@@ -28,7 +28,7 @@ model = dict(
         hm_weight=1.,
         wh_weight=5.,
         max_objs=256,
-        with_deformable=True))
+        receptive_field_layer='deformable'))
 cudnn_benchmark = True
 # training and testing settings
 train_cfg = dict(

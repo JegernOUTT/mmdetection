@@ -89,7 +89,8 @@ class SingleStageDetector(BaseDetector):
 
     def forward_export(self, imgs):
         x = self.extract_feat(imgs)
-        return self.bbox_head(x)
+        return self.bbox_head(x) \
+            if getattr(self.bbox_head, 'forward_export', None) is None else self.bbox_head.forward_export(x)
 
     def _debug_data_pipeline(self,
                              img, img_metas,

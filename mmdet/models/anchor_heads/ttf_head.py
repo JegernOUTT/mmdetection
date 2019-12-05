@@ -7,7 +7,7 @@ from mmcv.cnn import normal_init, kaiming_init
 from mmdet.core import multi_apply, bbox_areas, force_fp32
 from mmdet.core.anchor.guided_anchor_target import calc_region
 from mmdet.models.losses import ct_focal_loss, giou_loss
-from mmdet.models.utils import (build_norm_layer, bias_init_with_prob, ConvModule)
+from mmdet.models.utils import (build_norm_layer, bias_init_with_prob, ConvModule, AdvancedRFB)
 from mmdet.ops import ModulatedDeformConvPack
 from mmdet.ops.nms import simple_nms
 from .anchor_head import AnchorHead
@@ -38,12 +38,14 @@ class TTFHead(AnchorHead):
                  hm_weight=1.,
                  wh_weight=5.,
                  max_objs=128,
-                 with_deformable=True):
+                 receptive_field_layer='deformable'):
         super(AnchorHead, self).__init__()
         assert len(planes) in [2, 3, 4]
         shortcut_num = min(len(inplanes) - 1, len(planes))
         assert shortcut_num == len(shortcut_cfg)
         assert wh_area_process in [None, 'norm', 'log', 'sqrt']
+
+        assert receptive_field_layer in ['deformable', 'conv', 'rfb']
 
         self.planes = planes
         self.head_conv = head_conv
@@ -57,7 +59,7 @@ class TTFHead(AnchorHead):
         self.hm_weight = hm_weight
         self.wh_weight = wh_weight
         self.max_objs = max_objs
-        self.with_deformable = with_deformable
+        self.receptive_field_layer = receptive_field_layer
         self.fp16_enabled = False
 
         self.down_ratio = base_down_ratio // 2 ** len(planes)
@@ -101,11 +103,16 @@ class TTFHead(AnchorHead):
         return shortcut_layers
 
     def build_upsample(self, inplanes, planes, norm_cfg=None):
-        if self.with_deformable:
+        if self.receptive_field_layer == 'deformable':
             mdcn = ModulatedDeformConvPack(inplanes, planes, 3, stride=1,
                                            padding=1, dilation=1, deformable_groups=1)
-        else:
+        elif self.receptive_field_layer == 'conv':
             mdcn = nn.Conv2d(inplanes, planes, 3, stride=1, padding=1, dilation=1)
+        elif self.receptive_field_layer == 'rfb':
+            mdcn = AdvancedRFB(inplanes, planes)
+        else:
+            assert False
+
         up = nn.Upsample(scale_factor=2, mode='nearest')
 
         layers = [mdcn]
@@ -169,6 +176,30 @@ class TTFHead(AnchorHead):
         wh = F.relu(self.wh(x)) * self.wh_offset_base
 
         return hm, wh
+
+    def forward_export(self, feats):
+        pred_heatmap, pred_wh = self.forward(feats)
+
+        batch, cat, height, width = pred_heatmap.size()
+        pred_heatmap = pred_heatmap.sigmoid()
+
+        heat = simple_nms(pred_heatmap)
+
+        base_step = self.down_ratio
+        shifts_x = torch.arange(0, (width - 1) * base_step + 1, base_step,
+                                dtype=torch.float32)
+        shifts_y = torch.arange(0, (height - 1) * base_step + 1, base_step,
+                                dtype=torch.float32)
+        shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
+        self.base_loc = torch.stack((shift_x, shift_y), dim=0)  # (2, h, w)
+
+        # (batch, h, w, 4)
+        pred_boxes = torch.cat((self.base_loc - pred_wh[:, [0, 1]],
+                                self.base_loc + pred_wh[:, [2, 3]]), dim=1)
+
+        res = torch.cat([heat, pred_boxes], 1)
+
+        return res
 
     @force_fp32(apply_to=('pred_heatmap', 'pred_wh'))
     def get_bboxes(self,
@@ -472,7 +503,6 @@ class TTFHead(AnchorHead):
 
 
 class ShortcutConv2d(nn.Module):
-
     def __init__(self,
                  in_channels,
                  out_channels,
