@@ -1,9 +1,11 @@
+import math
+
 import torch
 import torch.nn as nn
 
 from mmdet.core import bbox_overlaps
-from ..registry import LOSSES
 from .utils import weighted_loss
+from ..registry import LOSSES
 
 
 @weighted_loss
@@ -68,10 +70,8 @@ def bounded_iou_loss(pred, target, beta=0.2, eps=1e-3):
                        loss_comb - 0.5 * beta)
     return loss
 
-def giou_loss(pred,
-              target,
-              weight,
-              avg_factor=None):
+
+def giou_loss(pred, target, weight, avg_factor=None):
     """GIoU loss.
     Computing the GIoU loss between a set of predicted bboxes and target bboxes.
     """
@@ -99,6 +99,103 @@ def giou_loss(pred,
     gious = ious - (enclose_area - u) / enclose_area
     iou_distances = 1 - gious
     return torch.sum(iou_distances * weight)[None] / avg_factor
+
+
+def diou_loss(pred, target, weight, avg_factor):
+    pos_mask = weight > 0
+    weight = weight[pos_mask].float()
+    if avg_factor is None:
+        avg_factor = torch.sum(pos_mask).float().item() + 1e-6
+    pred = pred[pos_mask].view(-1, 4)
+    target = target[pos_mask].view(-1, 4)
+
+    x1, y1, x2, y2 = pred[:, 0], pred[:, 1], pred[:, 2], pred[:, 3]
+    x1g, y1g, x2g, y2g = target[:, 0], target[:, 1], target[:, 2], target[:, 3]
+
+    x2 = torch.max(x1, x2)
+    y2 = torch.max(y1, y2)
+
+    x_p = (x2 + x1) / 2.
+    y_p = (y2 + y1) / 2.
+    x_g = (x1g + x2g) / 2.
+    y_g = (y1g + y2g) / 2.
+
+    xkis1 = torch.max(x1, x1g)
+    ykis1 = torch.max(y1, y1g)
+    xkis2 = torch.min(x2, x2g)
+    ykis2 = torch.min(y2, y2g)
+
+    xc1 = torch.min(x1, x1g)
+    yc1 = torch.min(y1, y1g)
+    xc2 = torch.max(x2, x2g)
+    yc2 = torch.max(y2, y2g)
+
+    intsctk = torch.zeros(x1.size()).to(pred)
+    mask = (ykis2 > ykis1) * (xkis2 > xkis1)
+    intsctk[mask] = (xkis2[mask] - xkis1[mask]) * (ykis2[mask] - ykis1[mask])
+    unionk = (x2 - x1) * (y2 - y1) + (x2g - x1g) * (y2g - y1g) - intsctk + 1e-7
+    iouk = intsctk / unionk
+
+    c = ((xc2 - xc1) ** 2) + ((yc2 - yc1) ** 2) + 1e-7
+    d = ((x_p - x_g) ** 2) + ((y_p - y_g) ** 2)
+    u = d / c
+    diouk = 1 - (iouk - u)
+    return torch.sum(diouk * weight)[None] / avg_factor
+
+
+def ciou_loss(pred, target, weight, avg_factor):
+    pos_mask = weight > 0
+    weight = weight[pos_mask].float()
+    if avg_factor is None:
+        avg_factor = torch.sum(pos_mask).float().item() + 1e-6
+    pred = pred[pos_mask].view(-1, 4)
+    target = target[pos_mask].view(-1, 4)
+
+    x1, y1, x2, y2 = pred[:, 0], pred[:, 1], pred[:, 2], pred[:, 3]
+    x1g, y1g, x2g, y2g = target[:, 0], target[:, 1], target[:, 2], target[:, 3]
+
+    x2 = torch.max(x1, x2)
+    y2 = torch.max(y1, y2)
+    w_pred = x2 - x1
+    h_pred = y2 - y1
+    w_gt = x2g - x1g
+    h_gt = y2g - y1g
+
+    x_center = (x2 + x1) / 2.
+    y_center = (y2 + y1) / 2.
+    x_center_g = (x1g + x2g) / 2.
+    y_center_g = (y1g + y2g) / 2.
+
+    xkis1 = torch.max(x1, x1g)
+    ykis1 = torch.max(y1, y1g)
+    xkis2 = torch.min(x2, x2g)
+    ykis2 = torch.min(y2, y2g)
+
+    xc1 = torch.min(x1, x1g)
+    yc1 = torch.min(y1, y1g)
+    xc2 = torch.max(x2, x2g)
+    yc2 = torch.max(y2, y2g)
+
+    intsctk = torch.zeros(x1.size()).to(pred)
+    mask = (ykis2 > ykis1) * (xkis2 > xkis1)
+    intsctk[mask] = (xkis2[mask] - xkis1[mask]) * (ykis2[mask] - ykis1[mask])
+    unionk = (x2 - x1) * (y2 - y1) + (x2g - x1g) * (y2g - y1g) - intsctk + 1e-7
+    iouk = intsctk / unionk
+
+    c = ((xc2 - xc1) ** 2) + ((yc2 - yc1) ** 2) + 1e-7
+    d = ((x_center - x_center_g) ** 2) + ((y_center - y_center_g) ** 2)
+    u = d / c
+
+    with torch.no_grad():
+        arctan = torch.atan(w_gt / h_gt) - torch.atan(w_pred / h_pred)
+        v = (4 / (math.pi ** 2)) * torch.pow((torch.atan(w_gt / h_gt) - torch.atan(w_pred / h_pred)), 2)
+        S = 1 - iouk
+        alpha = v / (S + v)
+        w_temp = 2 * w_pred
+    ar = (8 / (math.pi ** 2)) * arctan * ((w_pred - w_temp) * h_pred)
+    ciouk = iouk - (u + alpha * ar)
+    ciouk = 1 - ciouk
+    return torch.sum(ciouk * weight)[None] / avg_factor
 
 
 @LOSSES.register_module
