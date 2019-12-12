@@ -100,8 +100,13 @@ def build_optimizer(model, optimizer_cfg):
             optimizer_type = optimizer_cfg.pop('type')
             optimizer_cls = getattr(torch.optim, optimizer_type)
         except:
-            import catalyst.contrib.optimizers
-            optimizer_cls = getattr(catalyst.contrib.optimizers, optimizer_type)
+            # TODO: Refactor optimizer selection
+            try:
+                import catalyst.contrib.optimizers
+                optimizer_cls = getattr(catalyst.contrib.optimizers, optimizer_type)
+            except:
+                import apex.optimizers
+                optimizer_cls = getattr(apex.optimizers, optimizer_type)
         return optimizer_cls(params=model.parameters(), **optimizer_cfg)
     else:
         assert isinstance(paramwise_options, dict)
