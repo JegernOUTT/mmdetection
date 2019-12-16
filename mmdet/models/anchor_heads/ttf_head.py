@@ -6,7 +6,7 @@ from mmcv.cnn import normal_init, kaiming_init
 
 from mmdet.core import multi_apply, bbox_areas, force_fp32
 from mmdet.core.anchor.guided_anchor_target import calc_region
-from mmdet.models.losses import ct_focal_loss, giou_loss
+from mmdet.models.losses import ct_focal_loss, giou_loss, ciou_loss, diou_loss
 from mmdet.models.utils import (build_norm_layer, bias_init_with_prob, ConvModule, AdvancedRFB)
 from mmdet.ops import ModulatedDeformConvPack
 from mmdet.ops.nms import simple_nms
@@ -495,7 +495,7 @@ class TTFHead(AnchorHead):
                                 self.base_loc + pred_wh[:, [2, 3]]), dim=1).permute(0, 2, 3, 1)
         # (batch, h, w, 4)
         boxes = box_target.permute(0, 2, 3, 1)
-        wh_loss = giou_loss(pred_boxes, boxes, mask, avg_factor=avg_factor) * self.wh_weight
+        wh_loss = diou_loss(pred_boxes, boxes, mask, avg_factor=avg_factor) * self.wh_weight
 
         return hm_loss, wh_loss
 

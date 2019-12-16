@@ -154,6 +154,7 @@ class CocoDistEvalmAPHook(DistEvalHook):
             iou_type = res_type
             cocoEval = COCOeval(cocoGt, cocoDt, iou_type)
             cocoEval.params.imgIds = imgIds
+            cocoEval.params.maxDets = [1, 100, 300]
             cocoEval.evaluate()
             cocoEval.accumulate()
             cocoEval.summarize()
