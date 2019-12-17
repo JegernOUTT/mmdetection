@@ -8,20 +8,30 @@ from ..registry import BACKBONES
 from ..utils import ConvModule
 
 
-def mish(input):
-    return input * torch.tanh(F.softplus(input))
+class Mish(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return x * torch.tanh(F.softplus(x))
 
 
 @BACKBONES.register_module
 class ConvnetLprVehicle(nn.Module):
     def __init__(self,
                  norm_cfg=dict(type='BN', requires_grad=True),
-                 out_indices: Optional[Sequence[int]] = (0, 1, 2, 3, 4)):
+                 out_indices: Optional[Sequence[int]] = (0, 1, 2, 3, 4),
+                 activation='relu'):
         super().__init__()
         self._norm_cfg = norm_cfg
         self._out_indices = out_indices
         self._kwargs = dict(conv_cfg=None, norm_cfg=self._norm_cfg, activation=None)
-        self._activation = nn.ReLU(inplace=True)
+        if activation == 'relu':
+            self._activation = nn.ReLU(inplace=True)
+        elif activation == 'mish':
+            self._activation = Mish()
+        else:
+            assert False
 
         # 2
         self.conv_1 = ConvModule(3, 16, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
@@ -82,8 +92,12 @@ class ConvnetLprPlate(nn.Module):
         self._activation = activation
         self._out_indices = out_indices
         self._kwargs = dict(conv_cfg=None, norm_cfg=self._norm_cfg, activation=None)
-        self._activation = nn.ReLU(inplace=True)
-
+        if activation == 'relu':
+            self._activation = nn.ReLU(inplace=True)
+        elif activation == 'mish':
+            self._activation = Mish()
+        else:
+            assert False
         # 2
         self.conv_1 = ConvModule(3, 16, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
         self.conv_2 = ConvModule(16, 16, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
