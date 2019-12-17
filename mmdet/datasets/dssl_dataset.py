@@ -40,8 +40,9 @@ class DsslDataset(CustomDataset):
     def load_trassir_composer(self, load_config_filename):
         trassir_load_config = load_module(load_config_filename)
         load_and_dump_config = trassir_load_config.__getattribute__(self._load_and_dump_config_name)
-        self._categories_dict = load_and_dump_config['categories']
-        DsslDataset.CLASSES = tuple(load_and_dump_config['categories'].values())
+        self._categories_dict = load_and_dump_config[0]['categories'] if isinstance(load_and_dump_config, list) \
+            else load_and_dump_config['categories']
+        DsslDataset.CLASSES = tuple(self._categories_dict.values())
         try:
             return create_composer(load_and_dump_configs=load_and_dump_config,
                                    composer_config=trassir_load_config.__getattribute__(self._composer_config_name))
