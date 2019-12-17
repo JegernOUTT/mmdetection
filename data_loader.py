@@ -4,14 +4,14 @@ from pathlib import Path
 
 from detector_utils import *
 
-__all__ = ['train_load_configs', 'test_load_config', 'composer_train_config', 'composer_test_config']
+__all__ = ['train_load_configs', 'test_load_config', 'train_composer_config', 'test_composer_config']
 
 categories = {0: 'car', 1: 'motorcycle', 2: 'bus', 3: 'truck', 4: 'van'}
-
+_base_path = Path('/mnt/nfs/Data/lpr/lpr_5/')
 _supervisely_train_load_config = {
     'categories': categories,
     'data_loader': SuperviselyLoadInformation(
-        dataset_path=Path('/Users/sergejvahreev/Pictures/lpr5_supervisely')),
+        dataset_path=_base_path / 'lpr5_supervisely'),
     'dump': DumpConfig(
         clone_images=True,
         annotations_dump_filename=Path(f'train/supervisely_annotations/annotations'),
@@ -21,7 +21,10 @@ _supervisely_train_load_config = {
 _pickle_train_load_config = {
     'categories': categories,
     'data_loader': LegacyPickleLoadInformation(
-        data_paths=[DataPathInformation(path=Path('/Users/sergejvahreev/Pictures/lpr_cam'))]
+        data_paths=[
+            DataPathInformation(path=_base_path / 'lpr_cam'),
+            DataPathInformation(path=_base_path / 'platesmania')
+        ]
     ),
     'dump': DumpConfig(
         clone_images=True,
@@ -34,7 +37,7 @@ train_load_configs = [_supervisely_train_load_config, _pickle_train_load_config]
 test_load_config = {
     'categories': categories,
     'data_loader': LegacyPickleLoadInformation(
-        data_paths=[DataPathInformation(path=Path('/Users/sergejvahreev/Pictures/lpr_cam'))]
+        data_paths=[DataPathInformation(path=_base_path / 'lpr5_test')]
     ),
     'dump': DumpConfig(
         clone_images=True,
@@ -42,7 +45,7 @@ test_load_config = {
         images_clone_path=Path(f'test/images'))
 }
 
-composer_train_config = {
+train_composer_config = {
     'filters': [
         {'type': 'ImageValidityFilter'},
         {'type': 'ImageSizeFilter',
@@ -54,7 +57,7 @@ composer_train_config = {
     'sampler': {'type': 'SimpleSampler'}
 }
 
-composer_test_config = {
+test_composer_config = {
     'filters': [{'type': 'ImageValidityFilter'}],
     'sampler': {'type': 'SimpleSampler'}
 }
