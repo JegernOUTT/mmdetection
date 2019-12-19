@@ -1,8 +1,10 @@
+import logging
 from typing import Sequence, Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from mmcv.runner import load_checkpoint
 
 from ..registry import BACKBONES
 from ..utils import ConvModule
@@ -60,7 +62,9 @@ class ConvnetLprVehicle(nn.Module):
         ])
 
     def init_weights(self, pretrained=None):
-        pass
+        if isinstance(pretrained, str):
+            logger = logging.getLogger()
+            load_checkpoint(self, pretrained, strict=False, logger=logger)
 
     def forward(self, x):
         x = self._activation(self.conv_1(x))
@@ -117,7 +121,9 @@ class ConvnetLprPlate(nn.Module):
         ])
 
     def init_weights(self, pretrained=None):
-        pass
+        if isinstance(pretrained, str):
+            logger = logging.getLogger()
+            load_checkpoint(self, pretrained, strict=False, logger=logger)
 
     def forward(self, x):
         x = self._activation(self.conv_1(x))
