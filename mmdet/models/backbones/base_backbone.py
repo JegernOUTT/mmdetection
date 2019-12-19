@@ -1,6 +1,7 @@
 import logging
 from typing import Sequence, Optional
 
+import torch
 import torch.nn as nn
 from mmcv.runner import load_checkpoint
 
@@ -29,3 +30,21 @@ class BaseBackbone(nn.Module):
         if isinstance(pretrained, str):
             logger = logging.getLogger()
             load_checkpoint(self, pretrained, strict=False, logger=logger)
+
+
+class ClassifierPretrainWrapper(nn.Module):
+    def __init__(self, backbone_module: nn.Module, num_classes: int):
+        super().__init__()
+        self.backbone_module = backbone_module
+        self.classifier_layers = [
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Linear(256, num_classes)]
+        self.classifier_layers = nn.Sequential(*self.last_layers)
+
+    def save_backbone(self, path):
+        torch.save({'state_dict': self.backbone_module.state_dict()}, path)
+
+    def forward(self, x):
+        x = self.backbone_module(x)
+        return self.classifier_layers(x)
