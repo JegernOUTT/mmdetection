@@ -1,30 +1,21 @@
 from typing import Sequence, Optional
 
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
+from .base_backbone import BaseBackbone, filter_by_out_idices
 from ..registry import BACKBONES
 from ..utils import ConvModule
-
-
-class Mish(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        return x * torch.tanh(F.softplus(x))
+from ..utils.mish import Mish
 
 
 @BACKBONES.register_module
-class ConvnetLprVehicle(nn.Module):
+class ConvnetLprVehicle(BaseBackbone):
     def __init__(self,
                  norm_cfg=dict(type='BN', requires_grad=True),
-                 out_indices: Optional[Sequence[int]] = (0, 1, 2, 3, 4),
-                 activation='relu'):
-        super().__init__()
+                 activation='relu',
+                 out_indices: Optional[Sequence[int]] = (0, 1, 2, 3, 4)):
+        super().__init__(out_indices=out_indices)
         self._norm_cfg = norm_cfg
-        self._out_indices = out_indices
         self._kwargs = dict(conv_cfg=None, norm_cfg=self._norm_cfg, activation=None)
         if activation == 'relu':
             self._activation = nn.ReLU(inplace=True)
@@ -53,15 +44,7 @@ class ConvnetLprVehicle(nn.Module):
         self.conv_9 = ConvModule(128, 256, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
         self.conv_10 = ConvModule(256, 256, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
 
-    def _get_by_idxes(self, data):
-        return tuple([
-            data[idx]
-            for idx in self._out_indices
-        ])
-
-    def init_weights(self, pretrained=None):
-        pass
-
+    @filter_by_out_idices
     def forward(self, x):
         x = self._activation(self.conv_1(x))
         x = skip_2 = self._activation(self.conv_2(x))
@@ -78,19 +61,18 @@ class ConvnetLprVehicle(nn.Module):
         x = self._activation(self.conv_9(x))
         x = self._activation(self.conv_10(x))
 
-        return x if self._out_indices is None else self._get_by_idxes((skip_2, skip_4, skip_8, skip_16, x))
+        return skip_2, skip_4, skip_8, skip_16, x
 
 
 @BACKBONES.register_module
-class ConvnetLprPlate(nn.Module):
+class ConvnetLprPlate(BaseBackbone):
     def __init__(self,
                  norm_cfg=dict(type='BN', requires_grad=True),
                  activation: str = 'relu',
                  out_indices: Optional[Sequence[int]] = (0, 1, 2, 3)):
-        super().__init__()
+        super().__init__(out_indices)
         self._norm_cfg = norm_cfg
         self._activation = activation
-        self._out_indices = out_indices
         self._kwargs = dict(conv_cfg=None, norm_cfg=self._norm_cfg, activation=None)
         if activation == 'relu':
             self._activation = nn.ReLU(inplace=True)
@@ -110,15 +92,7 @@ class ConvnetLprPlate(nn.Module):
         self.conv_5 = ConvModule(32, 64, kernel_size=3, stride=1, padding=1, bias=False, **self._kwargs)
         self.conv_6 = ConvModule(64, 64, kernel_size=3, stride=2, padding=1, bias=False, **self._kwargs)
 
-    def _get_by_idxes(self, data):
-        return tuple([
-            data[idx]
-            for idx in self._out_indices
-        ])
-
-    def init_weights(self, pretrained=None):
-        pass
-
+    @filter_by_out_idices
     def forward(self, x):
         x = self._activation(self.conv_1(x))
         x = skip_2 = self._activation(self.conv_2(x))
@@ -129,4 +103,4 @@ class ConvnetLprPlate(nn.Module):
         x = self._activation(self.conv_5(x))
         x = self._activation(self.conv_6(x))
 
-        return x if self._out_indices is None else self._get_by_idxes((skip_2, skip_4, x))
+        return skip_2, skip_4, x
