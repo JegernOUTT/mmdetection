@@ -5,7 +5,7 @@ import torch.nn as nn
 from .base_backbone import BaseBackbone, filter_by_out_idices
 from ..registry import BACKBONES
 from ..utils import ConvModule
-from ..utils.mish import Mish
+from ..utils.activations import Mish
 
 
 @BACKBONES.register_module

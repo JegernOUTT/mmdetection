@@ -4,9 +4,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .base_backbone import BaseBackbone, filter_by_out_idices
-from ..utils.mish import Mish
 
 __all__ = ['ScarletA', 'ScarletB', 'ScarletC']
+
+from ..utils.activations import Mish
 
 
 def stem(inp, oup, stride):
@@ -148,7 +149,6 @@ class ScarletBase(BaseBackbone):
                 InvertedResidual(input_channel, output_channel, k, s, expand_ratio=t, is_use_se=e))
             self.block_names.append(block_name)
             input_channel = output_channel
-        self.mb_module = nn.Sequential(*self.mb_module)
         self.conv_before_pooling = conv_before_pooling(input_channel, self.last_channel)
         self._initialize_weights()
 
