@@ -4,7 +4,7 @@ from typing import Optional, Sequence
 import torch
 import torch.nn as nn
 
-from mmdet.models import BACKBONES
+from ..registry import BACKBONES
 from mmdet.models.backbones.base_backbone import BaseBackbone, filter_by_out_idices
 from mmdet.models.utils.activations import Swish, Mish
 

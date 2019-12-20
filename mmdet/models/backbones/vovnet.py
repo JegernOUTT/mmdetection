@@ -4,7 +4,7 @@ from typing import Optional, Sequence
 import torch
 import torch.nn as nn
 
-from mmdet.models import BACKBONES
+from ..registry import BACKBONES
 from mmdet.models.backbones.base_backbone import BaseBackbone, filter_by_out_idices
 
 __all__ = ['VoVNet27Slim', 'VoVNet39', 'VoVNet57']
