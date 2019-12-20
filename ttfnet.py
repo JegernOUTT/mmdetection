@@ -4,9 +4,10 @@ from detector_utils.pytorch.utils import inject_all_hooks
 inject_all_hooks()
 model = dict(
     type='TTFNet',
-    pretrained=None,
+    pretrained="./convnetlprvehicle.pth",
     backbone=dict(
         type='ConvnetLprVehicle',
+        activation='mish',
         out_indices=(1, 2, 3, 4)),
     neck=None,
     bbox_head=dict(
@@ -39,15 +40,15 @@ test_cfg = dict(
 albu_train_transforms = [
     dict(type='HorizontalFlip'),
     dict(type='ShiftScaleRotate',
-         shift_limit=[-0.05, 0.05],
-         scale_limit=[-0.05, 0.05],
-         rotate_limit=[-10, 10],
+         shift_limit=[-0.01, 0.01],
+         scale_limit=[-0.01, 0.01],
+         rotate_limit=[-5, 5],
          border_mode=0,
          value=[128, 128, 128],
          p=0.5),
     dict(type='RandomBrightnessContrast',
-         brightness_limit=[0.1, 0.3],
-         contrast_limit=[0.1, 0.5],
+         brightness_limit=[-0.2, 0.2],
+         contrast_limit=[-0.2, 0.2],
          p=0.2),
     dict(type='OneOf',
          transforms=[
@@ -55,13 +56,8 @@ albu_train_transforms = [
              dict(type='HueSaturationValue', hue_shift_limit=10, sat_shift_limit=15, val_shift_limit=10, p=1.0)
          ], p=0.2),
     dict(type='JpegCompression', quality_lower=50, quality_upper=100, p=0.2),
-    dict(type='OneOf',
-         transforms=[
-             dict(type='Blur', blur_limit=3, p=1.0),
-             dict(type='MedianBlur', blur_limit=3, p=1.0),
-         ], p=0.2),
     dict(type='CLAHE', p=0.3),
-    dict(type='ToGray', p=0.2),
+    dict(type='ToGray', p=0.1),
     dict(type='Cutout', num_holes=5, max_h_size=5, max_w_size=5, fill_value=[128, 128, 128])
 ]
 width, height = 192, 160
@@ -85,7 +81,7 @@ train_pipeline = [
              format='pascal_voc',
              label_fields=['gt_labels'],
              min_area=0.01,
-             min_visibility=0.01,
+             min_visibility=0.1,
              filter_lost_elements=True),
          update_pad_shape=True,
          keymap={
@@ -98,8 +94,8 @@ train_pipeline = [
              type='BboxParams',
              format='pascal_voc',
              label_fields=['gt_labels'],
-             min_area=0.01,
-             min_visibility=0.01,
+             min_area=0.08,
+             min_visibility=0.1,
              filter_lost_elements=True),
          update_pad_shape=True,
          keymap={
@@ -148,14 +144,14 @@ data = dict(
         composer_config_name='test_composer_config',
         pipeline=test_pipeline))
 # optimizer
-optimizer = dict(type='SGD', lr=0.015, momentum=0.9, weight_decay=0.0004,
+optimizer = dict(type='SGD', lr=0.00001, momentum=0.9, weight_decay=0.0004,
                  paramwise_options=dict(bias_lr_mult=2., bias_decay_mult=0.))
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
     policy='torch',
     torch_scheduler='OneCycleLR',
-    max_lr=0.015)
+    max_lr=0.0262)
 checkpoint_config = dict(interval=4)
 # runtime settings
 total_epochs = 70
@@ -170,5 +166,5 @@ log_config = dict(
     interval=30,
     hooks=[
         dict(type='TextLoggerHook'),
-        dict(type='WandbLoggerHook', project='Debug test', config_filename=Path.absolute(Path(__file__)))
+        dict(type='WandbLoggerHook', project='lpr5_vehicle', config_filename=Path.absolute(Path(__file__)))
     ])
