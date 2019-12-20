@@ -180,20 +180,22 @@ class TTFHead(AnchorHead):
     def forward_export(self, feats):
         pred_heatmap, pred_wh = self.forward(feats)
 
-        _, _, height, width = map(int, pred_heatmap.size())
+        batch, cat, height, width = pred_heatmap.size()
         pred_heatmap = pred_heatmap.sigmoid()
 
         heat = simple_nms(pred_heatmap)
 
         base_step = self.down_ratio
-        shifts_x = np.arange(0, width * base_step, base_step, dtype=np.float32)
-        shifts_y = np.arange(0, height * base_step, base_step, dtype=np.float32)
-        shift_y, shift_x = np.meshgrid(shifts_x, shifts_y)
-        base_loc = torch.tensor(np.stack((shift_x, shift_y), axis=0)).to(pred_wh.device)  # (2, h, w)
+        shifts_x = torch.arange(0, (width - 1) * base_step + 1, base_step,
+                                dtype=torch.float32)
+        shifts_y = torch.arange(0, (height - 1) * base_step + 1, base_step,
+                                dtype=torch.float32)
+        shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
+        self.base_loc = torch.stack((shift_x, shift_y), dim=0)  # (2, h, w)
 
         # (batch, h, w, 4)
-        pred_boxes = torch.cat((base_loc - pred_wh[:, [0, 1]],
-                                base_loc + pred_wh[:, [2, 3]]), dim=1)
+        pred_boxes = torch.cat((self.base_loc - pred_wh[:, [0, 1]],
+                                self.base_loc + pred_wh[:, [2, 3]]), dim=1)
 
         res = torch.cat([heat, pred_boxes], 1)
 

@@ -41,7 +41,6 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = mmcv.Config.fromfile(args.config)
-    output_path = './test.onnx'
 
     torch.backends.cudnn.benchmark = True
     cfg.model.pretrained = None
@@ -52,18 +51,19 @@ def main():
     load_checkpoint(model, args.checkpoint, map_location='cpu')
     model.eval()
 
-    output_h, output_w = 512, 512
-    for k, v in cfg.items():
+    output_h, output_w = 768, 1024
+    for k, v in cfg.__dict__.items():
         if k.startswith('test'):
-            for k_, v_ in v.items():
+            for k_, v_ in v.__dict__.items():
                 if k_.endswith('img_scale'):
                     output_w, output_h = v_
 
     assert 'forward_export' in model.__dir__()
+    print(f'Width: {output_w}, height: {output_h}')
     model.forward = model.forward_export
     with torch.no_grad():
         export(model, torch.zeros((1, 3, output_h, output_w), dtype=torch.float32),
-               output_path,
+               args.out,
                opset_version=9,
                do_constant_folding=True)
     similarity_test(model, args.out, height_width=(output_h, output_w))
