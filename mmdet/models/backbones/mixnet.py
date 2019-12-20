@@ -4,6 +4,7 @@ from typing import Optional, Sequence
 import torch
 import torch.nn as nn
 
+from mmdet.models import BACKBONES
 from mmdet.models.backbones.base_backbone import BaseBackbone, filter_by_out_idices
 from mmdet.models.utils.activations import Swish, Mish
 
@@ -259,6 +260,7 @@ class BaseMixnet(BaseBackbone):
                 m.bias.data.zero_()
 
 
+@BACKBONES.register_module
 class MixNetS(BaseMixnet):
     # [in_channels, out_channels, kernel_size, expand_ksize, project_ksize, stride, expand_ratio, non_linear, se_ratio]
     mixnet_s = [(16, 16, [3], [1], [1], 1, 1, 'ReLU', 0.0),
@@ -285,6 +287,7 @@ class MixNetS(BaseMixnet):
                          feature_size=feature_size, out_indices=out_indices)
 
 
+@BACKBONES.register_module
 class MixNetM(BaseMixnet):
     # [in_channels, out_channels, kernel_size, expand_ksize, project_ksize, stride, expand_ratio, non_linear, se_ratio]
     mixnet_m = [(24, 24, [3], [1], [1], 1, 1, 'ReLU', 0.0),
@@ -314,6 +317,7 @@ class MixNetM(BaseMixnet):
                          feature_size=feature_size, out_indices=out_indices)
 
 
+@BACKBONES.register_module
 class MixNetL(BaseMixnet):
     # [in_channels, out_channels, kernel_size, expand_ksize, project_ksize, stride, expand_ratio, non_linear, se_ratio]
     mixnet_m = [(24, 24, [3], [1], [1], 1, 1, 'ReLU', 0.0),

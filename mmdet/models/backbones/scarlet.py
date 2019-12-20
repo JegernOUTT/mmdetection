@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .base_backbone import BaseBackbone, filter_by_out_idices
+from .. import BACKBONES
 from ..utils.activations import Mish
 
 __all__ = ['ScarletA', 'ScarletB', 'ScarletC']
@@ -180,6 +181,7 @@ class ScarletBase(BaseBackbone):
                 m.bias.data.zero_()
 
 
+@BACKBONES.register_module
 class ScarletA(ScarletBase):
     def __init__(self, out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super(ScarletA, self).__init__(
@@ -210,6 +212,7 @@ class ScarletA(ScarletBase):
             out_indices=out_indices)
 
 
+@BACKBONES.register_module
 class ScarletB(ScarletBase):
     def __init__(self, out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super(ScarletB, self).__init__(
@@ -240,6 +243,7 @@ class ScarletB(ScarletBase):
             out_indices=out_indices)
 
 
+@BACKBONES.register_module
 class ScarletC(ScarletBase):
     def __init__(self, out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super(ScarletC, self).__init__(
