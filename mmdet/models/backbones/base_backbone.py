@@ -9,8 +9,8 @@ __all__ = ['filter_by_out_idices', 'BaseBackbone', 'ClassifierPretrainWrapper']
 
 
 def filter_by_out_idices(forward_func):
-    def _filter_func(self):
-        outputs = forward_func(self)
+    def _filter_func(self, x):
+        outputs = forward_func(self, x)
         if self._out_indices is None:
             return outputs[-1]
         return tuple([
@@ -22,7 +22,7 @@ def filter_by_out_idices(forward_func):
 
 
 class BaseBackbone(nn.Module):
-    def __init__(self, out_indices: Optional[Sequence[int]] = (0, 1, 2, 3)):
+    def __init__(self, out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super().__init__()
         self._out_indices = out_indices
 

@@ -1,13 +1,13 @@
 import math
+from typing import Optional, Sequence
 
 import torch.nn as nn
 import torch.nn.functional as F
 
 from .base_backbone import BaseBackbone, filter_by_out_idices
+from ..utils.activations import Mish
 
 __all__ = ['ScarletA', 'ScarletB', 'ScarletC']
-
-from ..utils.activations import Mish
 
 
 def stem(inp, oup, stride):
@@ -130,21 +130,22 @@ class InvertedResidual(nn.Module):
 
 
 class ScarletBase(BaseBackbone):
-    def __init__(self, mb_config: list, input_channel: int, last_channel: int):
-        super(ScarletBase, self).__init__()
+    def __init__(self, mb_config: list, input_channel: int, last_channel: int,
+                 out_indices: Optional[Sequence[int]]):
+        super(ScarletBase, self).__init__(out_indices)
         self.last_channel = last_channel
         self.stem = stem(3, 32, 2)
         self.separable_conv = separable_conv(32, 16)
         self.block_names = []
         for idx, each_config in enumerate(mb_config):
             if each_config == "identity":
-                self.__setattr__(f'identity_{idx}', Identity())
+                self.add_module(f'identity_{idx}', Identity())
                 self.block_names.append(f'identity_{idx}')
                 continue
             t, c, k, s, e = each_config
             output_channel = c
             block_name = f'block_{idx}' if s == 1 else f'strided_block_{idx}'
-            self.__setattr__(
+            self.add_module(
                 block_name,
                 InvertedResidual(input_channel, output_channel, k, s, expand_ratio=t, is_use_se=e))
             self.block_names.append(block_name)
@@ -161,7 +162,7 @@ class ScarletBase(BaseBackbone):
         for block_name in self.block_names:
             if block_name.startswith('strided'):
                 skips.append(x)
-            x = self.__getattr__(block_name)(x)
+            x = getattr(self, block_name)(x)
 
         x = self.conv_before_pooling(x)
         skips.append(x)
@@ -180,7 +181,7 @@ class ScarletBase(BaseBackbone):
 
 
 class ScarletA(ScarletBase):
-    def __init__(self):
+    def __init__(self, out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super(ScarletA, self).__init__(
             mb_config=[
                 # expansion, out_channel, kernel_size, stride, se
@@ -205,11 +206,12 @@ class ScarletA(ScarletBase):
                 [6, 320, 7, 1, True],
             ],
             input_channel=16,
-            last_channel=1280)
+            last_channel=1280,
+            out_indices=out_indices)
 
 
 class ScarletB(ScarletBase):
-    def __init__(self):
+    def __init__(self, out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super(ScarletB, self).__init__(
             mb_config=[
                 # expansion, out_channel, kernel_size, stride, se
@@ -234,11 +236,12 @@ class ScarletB(ScarletBase):
                 [6, 320, 5, 1, True],
             ],
             input_channel=16,
-            last_channel=1280)
+            last_channel=1280,
+            out_indices=out_indices)
 
 
 class ScarletC(ScarletBase):
-    def __init__(self):
+    def __init__(self, out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super(ScarletC, self).__init__(
             mb_config=[
                 # expansion, out_channel, kernel_size, stride, se
@@ -263,4 +266,5 @@ class ScarletC(ScarletBase):
                 [6, 320, 5, 1, True],
             ],
             input_channel=16,
-            last_channel=1280)
+            last_channel=1280,
+            out_indices=out_indices)

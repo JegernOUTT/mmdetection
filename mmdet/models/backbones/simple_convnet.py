@@ -13,7 +13,7 @@ class ConvnetLprVehicle(BaseBackbone):
     def __init__(self,
                  norm_cfg=dict(type='BN', requires_grad=True),
                  activation='relu',
-                 out_indices: Optional[Sequence[int]] = (0, 1, 2, 3, 4)):
+                 out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super().__init__(out_indices=out_indices)
         self._norm_cfg = norm_cfg
         self._kwargs = dict(conv_cfg=None, norm_cfg=self._norm_cfg, activation=None)
@@ -69,7 +69,7 @@ class ConvnetLprPlate(BaseBackbone):
     def __init__(self,
                  norm_cfg=dict(type='BN', requires_grad=True),
                  activation: str = 'relu',
-                 out_indices: Optional[Sequence[int]] = (0, 1, 2, 3)):
+                 out_indices: Optional[Sequence[int]] = (0, 1, 2)):
         super().__init__(out_indices)
         self._norm_cfg = norm_cfg
         self._activation = activation

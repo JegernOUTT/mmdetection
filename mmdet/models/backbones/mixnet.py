@@ -195,7 +195,7 @@ class BaseMixnet(BaseBackbone):
                  stem_channels: int,
                  depth_multiplier: float = 1.0,
                  feature_size: int = 1536,
-                 out_indices: Optional[Sequence[int]] = (0, 1, 2, 3)):
+                 out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super(BaseMixnet, self).__init__(out_indices)
 
         # depth multiplier
@@ -216,7 +216,7 @@ class BaseMixnet(BaseBackbone):
         for idx, (in_channels, out_channels, kernel_size, expand_ksize,
                   project_ksize, stride, expand_ratio, non_linear, se_ratio) in enumerate(config):
             block_name = f'block_{idx}' if stride == 1 else f'strided_block_{idx}'
-            self.__setattr__(block_name, MixNetBlock(
+            self.add_module(block_name, MixNetBlock(
                 in_channels,
                 out_channels,
                 kernel_size=kernel_size,
@@ -241,7 +241,7 @@ class BaseMixnet(BaseBackbone):
         for block_name in self.block_names:
             if block_name.startswith('strided'):
                 skips.append(x)
-            x = self.__getattr__(block_name)(x)
+            x = getattr(self, block_name)(x)
 
         x = self.head_conv(x)
         skips.append(x)
@@ -309,7 +309,7 @@ class MixNetM(BaseMixnet):
 
     def __init__(self,
                  feature_size: int = 1536,
-                 out_indices: Optional[Sequence[int]] = (0, 1, 2, 3)):
+                 out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super().__init__(config=self.mixnet_m, stem_channels=24,
                          feature_size=feature_size, out_indices=out_indices)
 
@@ -338,6 +338,6 @@ class MixNetL(BaseMixnet):
 
     def __init__(self,
                  feature_size: int = 1536,
-                 out_indices: Optional[Sequence[int]] = (0, 1, 2, 3)):
+                 out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super().__init__(config=self.mixnet_m, stem_channels=24, depth_multiplier=1.3,
                          feature_size=feature_size, out_indices=out_indices)
