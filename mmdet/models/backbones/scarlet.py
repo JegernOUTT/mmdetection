@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .base_backbone import BaseBackbone, filter_by_out_idices
-from .. import BACKBONES
+from ..registry import BACKBONES
 from ..utils.activations import Mish
 
 __all__ = ['ScarletA', 'ScarletB', 'ScarletC']
