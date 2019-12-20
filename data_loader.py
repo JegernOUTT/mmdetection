@@ -48,13 +48,16 @@ test_load_config = {
 train_composer_config = {
     'filters': [
         {'type': 'ImageValidityFilter'},
+        {'type': 'BboxAbsoluteSizeFilter',
+         'min_size': Size2DF(width=0.05, height=0.05),
+         'max_size': Size2DF(width=1., height=1.)},
         {'type': 'ImageSizeFilter',
          'min_size': Size2D(width=32, height=32),
          'max_size': Size2D(width=10000, height=10000)},
         {'type': 'IgnoreMaskImagesRendererFilter', 'render_if_exists': False}
     ],
 
-    'sampler': {'type': 'SimpleSampler'}
+    'sampler': {'type': 'RandomSamplerFromManyDatasets'}
 }
 
 test_composer_config = {
@@ -64,6 +67,7 @@ test_composer_config = {
 
 
 if __name__ == '__main__':
-    for config in train_load_configs:
-        load_and_dump(load_and_dump_config=config)
-    create_composer_and_debug(load_and_dump_configs=train_load_configs, composer_config=composer_config)
+    # for config in train_load_configs:
+    #    load_and_dump(config)
+    # load_and_dump(test_load_config)
+    create_composer_and_debug(load_and_dump_configs=train_load_configs, composer_config=train_composer_config)
