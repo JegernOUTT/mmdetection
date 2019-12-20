@@ -4,6 +4,7 @@ from typing import Optional, Sequence
 import torch
 import torch.nn as nn
 
+from mmdet.models import BACKBONES
 from mmdet.models.backbones.base_backbone import BaseBackbone, filter_by_out_idices
 
 __all__ = ['VoVNet27Slim', 'VoVNet39', 'VoVNet57']
@@ -179,6 +180,7 @@ class VoVNetBase(BaseBackbone):
                 nn.init.constant_(m.bias, 0)
 
 
+@BACKBONES.register_module
 class VoVNet57(VoVNetBase):
     r"""Constructs a VoVNet-57 model as described in
     `"An Energy and GPU-Computation Efficient Backbone Networks"
@@ -201,6 +203,7 @@ class VoVNet57(VoVNetBase):
             out_indices=out_indices)
 
 
+@BACKBONES.register_module
 class VoVNet39(VoVNetBase):
     r"""Constructs a VoVNet-39 model as described in
     `"An Energy and GPU-Computation Efficient Backbone Networks"
@@ -223,6 +226,7 @@ class VoVNet39(VoVNetBase):
             out_indices=out_indices)
 
 
+@BACKBONES.register_module
 class VoVNet27Slim(VoVNetBase):
     r"""Constructs a VoVNet-39 model as described in
     `"An Energy and GPU-Computation Efficient Backbone Networks"
