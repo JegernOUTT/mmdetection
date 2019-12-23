@@ -866,12 +866,14 @@ class AugMix(object):
       alpha: Probability coefficient for Beta and Dirichlet distributions.
     """
 
-    def __init__(self, severity: int = 3, width: int = 3, depth: int = -1, alpha: float = 1.):
+    def __init__(self, severity: int = 3, width: int = 3, depth: int = -1, alpha: float = 1.,
+                 augmix_img_count: int = 2, with_js_loss: bool = False):
         self._severity = severity
         self._width = width
         self._depth = depth
         self._alpha = alpha
-        self._augmentations = self._get_augmentations()
+        self._augmix_img_count = augmix_img_count
+        self._with_js_loss = with_js_loss
 
     @staticmethod
     def _int_parameter(level, maxval):
@@ -921,21 +923,21 @@ class AugMix(object):
             return ImageOps.equalize(pil_img)
 
         def _posterize(pil_img, level):
-            level = AugMix.int_parameter(AugMix._sample_level(level), 4)
+            level = AugMix._int_parameter(AugMix._sample_level(level), 4)
             return ImageOps.posterize(pil_img, 4 - level)
 
         def _rotate(pil_img, level):
-            degrees = AugMix.int_parameter(AugMix._sample_geometric_level(level), 30)
+            degrees = AugMix._int_parameter(AugMix._sample_geometric_level(level), 30)
             if np.random.uniform() > 0.5:
                 degrees = -degrees
             return pil_img.rotate(degrees, resample=Image.BILINEAR)
 
         def _solarize(pil_img, level):
-            level = AugMix.int_parameter(AugMix._sample_level(level), 256)
+            level = AugMix._int_parameter(AugMix._sample_level(level), 256)
             return ImageOps.solarize(pil_img, 256 - level)
 
         def _shear_x(pil_img, level):
-            level = AugMix.float_parameter(AugMix._sample_geometric_level(level), 0.3)
+            level = AugMix._float_parameter(AugMix._sample_geometric_level(level), 0.3)
             if np.random.uniform() > 0.5:
                 level = -level
             return pil_img.transform(pil_img.size,
@@ -943,7 +945,7 @@ class AugMix(object):
                                      resample=Image.BILINEAR)
 
         def _shear_y(pil_img, level):
-            level = AugMix.float_parameter(AugMix._sample_geometric_level(level), 0.3)
+            level = AugMix._float_parameter(AugMix._sample_geometric_level(level), 0.3)
             if np.random.uniform() > 0.5:
                 level = -level
             return pil_img.transform(pil_img.size,
@@ -952,7 +954,7 @@ class AugMix(object):
 
         def _translate_x(pil_img, level):
             max_shape = max(pil_img.size)
-            level = AugMix.int_parameter(AugMix._sample_geometric_level(level), max_shape / 3)
+            level = AugMix._int_parameter(AugMix._sample_geometric_level(level), max_shape / 3)
             if np.random.random() > 0.5:
                 level = -level
             return pil_img.transform(pil_img.size,
@@ -961,7 +963,7 @@ class AugMix(object):
 
         def _translate_y(pil_img, level):
             max_shape = max(pil_img.size)
-            level = AugMix.int_parameter(AugMix._sample_geometric_level(level), max_shape / 3)
+            level = AugMix._int_parameter(AugMix._sample_geometric_level(level), max_shape / 3)
             if np.random.random() > 0.5:
                 level = -level
             return pil_img.transform(pil_img.size,
@@ -974,25 +976,37 @@ class AugMix(object):
 
     def __call__(self, results):
         assert results['img'].dtype == np.uint8, "AugMix must come before normalization node"
+        
+        def _make_aug_img(original_img):
+            def _apply_op(image, op, severity):
+                from PIL import Image
+                image = np.clip(image * 255., 0, 255).astype(np.uint8)
+                pil_img = Image.fromarray(image)
+                pil_img = op(pil_img, severity)
+                return np.asarray(pil_img) / 255.
 
-        def apply_op(image, op, severity):
-            from PIL import Image
-            pil_img = Image.fromarray(image)
-            pil_img = op(pil_img, severity)
-            return np.asarray(pil_img)
+            original_img = original_img / 255.
+            ws = np.float32(np.random.dirichlet([self._alpha] * self._width))
+            m = np.float32(np.random.beta(self._alpha, self._alpha))
+            augmentations = self._get_augmentations()
 
-        ws = np.float32(np.random.dirichlet([self._alpha] * self._width))
-        m = np.float32(np.random.beta(self._alpha, self._alpha))
+            mix = np.zeros_like(original_img)
+            for i in range(self._width):
+                image_aug = original_img.copy()
+                depth = self._depth if self._depth > 0 else np.random.randint(1, 4)
+                for _ in range(depth):
+                    op = np.random.choice(augmentations)
+                    image_aug = _apply_op(image_aug, op, self._severity)
+                mix += ws[i] * image_aug
 
-        mix = np.zeros_like(results['img'])
-        for i in range(self._width):
-            image_aug = results['img'].copy()
-            depth = self._depth if self._depth > 0 else np.random.randint(1, 4)
-            for _ in range(depth):
-                op = np.random.choice(self._augmentations)
-                image_aug = apply_op(image_aug, op, self._severity)
-            mix += ws[i] * image_aug
+            return (((1 - m) * original_img + m * mix) * 255.).astype(np.uint8)
 
-        mixed = (1 - m) * results['img'] + m * mix
-        results['img'] = mixed
-        return mixed
+        if self._with_js_loss:
+            for i in range(self._augmix_img_count):
+                results[f'img_augmix_{i}'] = _make_aug_img(results['img'])
+        else:
+            results['img'] = _make_aug_img(results['img'])
+        return results
+
+    def __repr__(self):
+        return self.__class__.__name__
