@@ -4,15 +4,15 @@ from detector_utils.pytorch.utils import inject_all_hooks
 inject_all_hooks()
 model = dict(
     type='TTFNet',
-    pretrained="./convnetlprvehicle.pth",
+    pretrained='/mnt/nfs/Other/pytorch_pretrained_backbones/vovnet27_slim/vovnet27_slim__21_12_19__02_07_52.pth',
     backbone=dict(
-        type='ConvnetLprVehicle',
-        activation='mish',
+        type='VoVNet27Slim',
+        pretrained=False, 
         out_indices=(1, 2, 3, 4)),
     neck=None,
     bbox_head=dict(
         type='TTFHead',
-        inplanes=(32, 64, 128, 256),
+        inplanes=(128, 256, 384, 512),
         head_conv=128,
         wh_conv=64,
         hm_head_conv_num=2,
@@ -151,7 +151,7 @@ optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 lr_config = dict(
     policy='torch',
     torch_scheduler='OneCycleLR',
-    max_lr=0.0262)
+    max_lr=0.037)
 checkpoint_config = dict(interval=4)
 # runtime settings
 total_epochs = 70

@@ -67,6 +67,7 @@ class SingleStageDetector(BaseDetector):
         if 'debug' in self.train_cfg and self.train_cfg['debug']:
             self._debug_data_pipeline(img, img_metas, gt_bboxes, gt_labels)
         x = self.extract_feat(img)
+        # print(list(map(lambda x_: x_.shape, x)))
         outs = self.bbox_head(x)
         loss_inputs = outs + (gt_bboxes, gt_labels, img_metas, self.train_cfg)
         losses = self.bbox_head.loss(

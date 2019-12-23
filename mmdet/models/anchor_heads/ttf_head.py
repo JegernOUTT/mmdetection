@@ -12,6 +12,7 @@ from mmdet.ops import ModulatedDeformConvPack
 from mmdet.ops.nms import simple_nms
 from .anchor_head import AnchorHead
 from ..registry import HEADS
+from ..utils.activations import Mish
 
 
 @HEADS.register_module
@@ -118,7 +119,7 @@ class TTFHead(AnchorHead):
         layers = [mdcn]
         if norm_cfg:
             layers.append(build_norm_layer(norm_cfg, planes)[1])
-        layers.append(nn.ReLU(inplace=True))
+        layers.append(Mish())
         layers.append(up)
 
         return nn.Sequential(*layers)
@@ -515,7 +516,7 @@ class ShortcutConv2d(nn.Module):
             inc = in_channels if i == 0 else out_channels
             layers.append(nn.Conv2d(inc, out_channels, kernel_size, padding=padding))
             if i < len(kernel_sizes) - 1 or activation_last:
-                layers.append(nn.ReLU(inplace=True))
+                layers.append(Mish())
 
         self.layers = nn.Sequential(*layers)
 
