@@ -5,9 +5,9 @@ import mmcv
 import numpy as np
 from albumentations import Compose
 from imagecorruptions import corrupt
+from mmdet.core.evaluation.bbox_overlaps import bbox_overlaps
 from numpy import random
 
-from mmdet.core.evaluation.bbox_overlaps import bbox_overlaps
 from ..registry import PIPELINES
 
 
@@ -851,3 +851,148 @@ class Albu(object):
         repr_str = self.__class__.__name__
         repr_str += '(transformations={})'.format(self.transformations)
         return repr_str
+
+
+@PIPELINES.register_module
+class AugMix(object):
+    """Perform AugMix augmentations and compute mixture.
+    Code taken and adapted from https://arxiv.org/pdf/1912.02781.pdf
+
+    Args:
+      severity: Severity of underlying augmentation operators (between 1 to 10).
+      width: Width of augmentation chain
+      depth: Depth of augmentation chain. -1 enables stochastic depth uniformly
+        from [1, 3]
+      alpha: Probability coefficient for Beta and Dirichlet distributions.
+    """
+
+    def __init__(self, severity: int = 3, width: int = 3, depth: int = -1, alpha: float = 1.):
+        self._severity = severity
+        self._width = width
+        self._depth = depth
+        self._alpha = alpha
+        self._augmentations = self._get_augmentations()
+
+    @staticmethod
+    def _int_parameter(level, maxval):
+        """Helper function to scale `val` between 0 and maxval .
+
+        Args:
+          level: Level of the operation that will be between [0, `PARAMETER_MAX`].
+          maxval: Maximum value that the operation can have. This will be scaled to
+            level/PARAMETER_MAX.
+
+        Returns:
+          An int that results from scaling `maxval` according to `level`.
+        """
+        return int(level * maxval / 10)
+
+    @staticmethod
+    def _float_parameter(level, maxval):
+        """Helper function to scale `val` between 0 and maxval.
+
+        Args:
+          level: Level of the operation that will be between [0, `PARAMETER_MAX`].
+          maxval: Maximum value that the operation can have. This will be scaled to
+            level/PARAMETER_MAX.
+
+        Returns:
+          A float that results from scaling `maxval` according to `level`.
+        """
+        return float(level) * maxval / 10.
+
+    @staticmethod
+    def _sample_level(n):
+        return np.random.uniform(low=0.1, high=n)
+
+    @staticmethod
+    def _sample_geometric_level(n):
+        return np.random.uniform(low=0., high=0.2 * n)
+
+    @staticmethod
+    def _get_augmentations():
+        from PIL import Image
+        from PIL import ImageOps
+
+        def _autocontrast(pil_img, _):
+            return ImageOps.autocontrast(pil_img)
+
+        def _equalize(pil_img, _):
+            return ImageOps.equalize(pil_img)
+
+        def _posterize(pil_img, level):
+            level = AugMix.int_parameter(AugMix._sample_level(level), 4)
+            return ImageOps.posterize(pil_img, 4 - level)
+
+        def _rotate(pil_img, level):
+            degrees = AugMix.int_parameter(AugMix._sample_geometric_level(level), 30)
+            if np.random.uniform() > 0.5:
+                degrees = -degrees
+            return pil_img.rotate(degrees, resample=Image.BILINEAR)
+
+        def _solarize(pil_img, level):
+            level = AugMix.int_parameter(AugMix._sample_level(level), 256)
+            return ImageOps.solarize(pil_img, 256 - level)
+
+        def _shear_x(pil_img, level):
+            level = AugMix.float_parameter(AugMix._sample_geometric_level(level), 0.3)
+            if np.random.uniform() > 0.5:
+                level = -level
+            return pil_img.transform(pil_img.size,
+                                     Image.AFFINE, (1, level, 0, 0, 1, 0),
+                                     resample=Image.BILINEAR)
+
+        def _shear_y(pil_img, level):
+            level = AugMix.float_parameter(AugMix._sample_geometric_level(level), 0.3)
+            if np.random.uniform() > 0.5:
+                level = -level
+            return pil_img.transform(pil_img.size,
+                                     Image.AFFINE, (1, 0, 0, level, 1, 0),
+                                     resample=Image.BILINEAR)
+
+        def _translate_x(pil_img, level):
+            max_shape = max(pil_img.size)
+            level = AugMix.int_parameter(AugMix._sample_geometric_level(level), max_shape / 3)
+            if np.random.random() > 0.5:
+                level = -level
+            return pil_img.transform(pil_img.size,
+                                     Image.AFFINE, (1, 0, level, 0, 1, 0),
+                                     resample=Image.BILINEAR)
+
+        def _translate_y(pil_img, level):
+            max_shape = max(pil_img.size)
+            level = AugMix.int_parameter(AugMix._sample_geometric_level(level), max_shape / 3)
+            if np.random.random() > 0.5:
+                level = -level
+            return pil_img.transform(pil_img.size,
+                                     Image.AFFINE, (1, 0, 0, 0, 1, level),
+                                     resample=Image.BILINEAR)
+        return [
+            _autocontrast, _equalize, _posterize, _solarize,
+            _rotate, _shear_x, _shear_y, _translate_x, _translate_y
+        ]
+
+    def __call__(self, results):
+        assert results['img'].dtype == np.uint8, "AugMix must come before normalization node"
+
+        def apply_op(image, op, severity):
+            from PIL import Image
+            pil_img = Image.fromarray(image)
+            pil_img = op(pil_img, severity)
+            return np.asarray(pil_img)
+
+        ws = np.float32(np.random.dirichlet([self._alpha] * self._width))
+        m = np.float32(np.random.beta(self._alpha, self._alpha))
+
+        mix = np.zeros_like(results['img'])
+        for i in range(self._width):
+            image_aug = results['img'].copy()
+            depth = self._depth if self._depth > 0 else np.random.randint(1, 4)
+            for _ in range(depth):
+                op = np.random.choice(self._augmentations)
+                image_aug = apply_op(image_aug, op, self._severity)
+            mix += ws[i] * image_aug
+
+        mixed = (1 - m) * results['img'] + m * mix
+        results['img'] = mixed
+        return mixed
