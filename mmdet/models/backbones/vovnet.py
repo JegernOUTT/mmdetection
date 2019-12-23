@@ -237,7 +237,7 @@ class VoVNet27Slim(VoVNetBase):
         progress (bool): If True, displays a progress bar of the download to stderr
     """
 
-    def __init__(self, pretrained: bool = True, progress: bool = True,
+    def __init__(self, pretrained: bool = False, progress: bool = True,
                  out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
         super().__init__(
             arch='vovnet27_slim',
