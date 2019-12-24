@@ -306,10 +306,11 @@ class Normalize(object):
         self.to_rgb = to_rgb
 
     def __call__(self, results):
-        results['img'] = mmcv.imnormalize(results['img'], self.mean, self.std,
-                                          self.to_rgb)
-        results['img_norm_cfg'] = dict(
-            mean=self.mean, std=self.std, to_rgb=self.to_rgb)
+        norm_cfgs = {}
+        for key in filter(lambda x: x.startswith('img') and isinstance(results[x], np.ndarray), results.keys()):
+            results[key] = mmcv.imnormalize(results[key], self.mean, self.std, self.to_rgb)
+            norm_cfgs[f'{key}_norm_cfg'] = dict(mean=self.mean, std=self.std, to_rgb=self.to_rgb)
+        results.update(norm_cfgs)
         return results
 
     def __repr__(self):
@@ -867,11 +868,12 @@ class AugMix(object):
     """
 
     def __init__(self, severity: int = 3, width: int = 3, depth: int = -1, alpha: float = 1.,
-                 augmix_img_count: int = 2, with_js_loss: bool = False):
+                 augmix_img_count: int = 2, with_js_loss: bool = False, geometric_aug_level: float = 0.2):
         self._severity = severity
         self._width = width
         self._depth = depth
         self._alpha = alpha
+        self._geometric_aug_level = geometric_aug_level
         self._augmix_img_count = augmix_img_count
         self._with_js_loss = with_js_loss
 
@@ -909,7 +911,7 @@ class AugMix(object):
 
     @staticmethod
     def _sample_geometric_level(n):
-        return np.random.uniform(low=0., high=0.2 * n)
+        return np.random.uniform(low=0., high=self._geometric_aug_level * n)
 
     @staticmethod
     def _get_augmentations():

@@ -28,14 +28,15 @@ class AbstractAugmixDetector(SingleStageDetector, ABC):
     # noinspection PyMethodOverriding
     def forward_train(self,
                       img,
+                      img_metas,
                       img_augmix_0,
                       img_augmix_1,
-                      img_metas,
                       gt_bboxes,
                       gt_labels,
                       gt_bboxes_ignore=None):
-        all_losses, objectness_outs = [], []
-        for img in [img, img_augmix_0, img_augmix_1]:
+        objectness_outs = []
+
+        def _calc_losses(img):
             if 'debug' in self.train_cfg and self.train_cfg['debug']:
                 self._debug_data_pipeline(img, img_metas, gt_bboxes, gt_labels)
             x = self.extract_feat(img)
@@ -43,15 +44,13 @@ class AbstractAugmixDetector(SingleStageDetector, ABC):
             objectness_outs.append(self.get_objectness_tensor_by_bboxhead_output(outs))
             loss_inputs = outs + (gt_bboxes, gt_labels, img_metas, self.train_cfg)
             losses = self.bbox_head.loss(*loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
-            all_losses.append(losses)
+            return losses
 
-        all_losses = {
-            loss_name: torch.stack([l[loss_name] for l in all_losses], dim=0).mean(dim=0)
-            for loss_name in all_losses[0].keys()
-        }
-
-        all_losses['js_loss'] = self.js_loss(*objectness_outs)
-        return all_losses
+        losses = _calc_losses(img)
+        _calc_losses(img_augmix_0)
+        _calc_losses(img_augmix_1)
+        losses['js_loss'] = self.js_loss(*objectness_outs)
+        return losses
 
     def js_loss(self, logits_clean: torch.Tensor, logits_aug1: torch.Tensor, logits_aug2: torch.Tensor):
         # Clamp mixture distribution to avoid exploding KL divergence

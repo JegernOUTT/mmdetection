@@ -114,9 +114,9 @@ class DefaultFormatBundle(object):
     """
 
     def __call__(self, results):
-        if 'img' in results:
-            img = np.ascontiguousarray(results['img'].transpose(2, 0, 1))
-            results['img'] = DC(to_tensor(img), stack=True)
+        for key in filter(lambda x: x.startswith('img') and isinstance(results[x], np.ndarray), results.keys()):
+            img = np.ascontiguousarray(results[key].transpose(2, 0, 1))
+            results[key] = DC(to_tensor(img), stack=True)
         for key in ['proposals', 'gt_bboxes', 'gt_bboxes_ignore', 'gt_labels']:
             if key not in results:
                 continue
