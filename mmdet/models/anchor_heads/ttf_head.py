@@ -1,3 +1,5 @@
+from functools import reduce
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -6,7 +8,7 @@ from mmcv.cnn import normal_init, kaiming_init
 
 from mmdet.core import multi_apply, bbox_areas, force_fp32
 from mmdet.core.anchor.guided_anchor_target import calc_region
-from mmdet.models.losses import ct_focal_loss, giou_loss, diou_loss, ciou_loss
+from mmdet.models.losses import ct_focal_loss, diou_loss
 from mmdet.models.utils import (build_norm_layer, bias_init_with_prob, ConvModule, AdvancedRFB)
 from mmdet.ops import ModulatedDeformConvPack
 from mmdet.ops.nms import simple_nms
@@ -21,15 +23,13 @@ class TTFHead(AnchorHead):
     def __init__(self,
                  inplanes=(64, 128, 256, 512),
                  planes=(256, 128, 64),
-                 base_down_ratio=32,
                  head_conv=256,
                  wh_conv=64,
                  hm_head_conv_num=2,
                  wh_head_conv_num=2,
                  num_classes=81,
-                 shortcut_kernel=3,
                  norm_cfg=dict(type='BN'),
-                 shortcut_cfg=(1, 2, 3),
+                 build_neck: bool = True,
                  wh_offset_base=16.,
                  wh_area_process='log',
                  wh_agnostic=True,
@@ -41,12 +41,7 @@ class TTFHead(AnchorHead):
                  max_objs=128,
                  receptive_field_layer='deformable'):
         super(AnchorHead, self).__init__()
-        assert len(planes) in [2, 3, 4]
-        shortcut_num = min(len(inplanes) - 1, len(planes))
-        assert shortcut_num == len(shortcut_cfg)
         assert wh_area_process in [None, 'norm', 'log', 'sqrt']
-
-        assert receptive_field_layer in ['deformable', 'conv', 'rfb']
 
         self.planes = planes
         self.head_conv = head_conv
@@ -62,86 +57,63 @@ class TTFHead(AnchorHead):
         self.max_objs = max_objs
         self.receptive_field_layer = receptive_field_layer
         self.fp16_enabled = False
+        self.build_neck = build_neck
 
-        self.down_ratio = base_down_ratio // 2 ** len(planes)
         self.num_fg = num_classes - 1
         self.wh_planes = 4 if wh_agnostic else 4 * self.num_fg
         self.base_loc = None
 
-        # repeat upsampling n times. 32x to 4x by default.
-        self.deconv_layers = nn.ModuleList([
-            self.build_upsample(inplanes[-1], planes[0], norm_cfg=norm_cfg),
-            self.build_upsample(planes[0], planes[1], norm_cfg=norm_cfg)
-        ])
-        for i in range(2, len(planes)):
-            self.deconv_layers.append(
-                self.build_upsample(planes[i - 1], planes[i], norm_cfg=norm_cfg))
 
-        padding = (shortcut_kernel - 1) // 2
-        self.shortcut_layers = self.build_shortcut(
-            inplanes[:-1][::-1][:shortcut_num], planes[:shortcut_num], shortcut_cfg,
-            kernel_size=shortcut_kernel, padding=padding)
+        self.upsample_scale_factors = [1, 2, 4, 8]
+        self.down_ratio = 4
+        self.channel_norm_planes = 256
+        self.final_conv_planes = 128
+
+        for idx, plane in enumerate(inplanes):
+            self.add_module(f'channel_norm_layer_{idx}',
+                            nn.Sequential(nn.Conv2d(plane, self.channel_norm_planes, 1, padding=0, bias=False),
+                                          build_norm_layer(norm_cfg, self.channel_norm_planes)[1],
+                                          Mish()))
+
+        for idx, scale_factor in enumerate(self.upsample_scale_factors):
+            if scale_factor > 1:
+                self.add_module(f'upsample_layer_{idx}', nn.Upsample(scale_factor=scale_factor, mode='nearest'))
+            else:
+                self.add_module(f'upsample_layer_{idx}', nn.Identity())
+
+        if self.receptive_field_layer == 'deformable':
+            final_conv = ModulatedDeformConvPack(self.channel_norm_planes, self.final_conv_planes, 3, stride=1,
+                                                 padding=1, dilation=1, deformable_groups=1)
+        elif self.receptive_field_layer == 'conv':
+            final_conv = nn.Conv2d(self.channel_norm_planes, self.final_conv_planes,
+                                   3, stride=1, padding=1, dilation=1, bias=False)
+        elif self.receptive_field_layer == 'rfb':
+            final_conv = AdvancedRFB(self.channel_norm_planes, self.final_conv_planes)
+        else:
+            assert False
+        self.final_layer = nn.Sequential(final_conv,
+                                         build_norm_layer(norm_cfg, self.final_conv_planes)[1],
+                                         Mish())
 
         # heads
         self.wh = self.build_head(self.wh_planes, wh_head_conv_num, wh_conv)
         self.hm = self.build_head(self.num_fg, hm_head_conv_num)
 
-    def build_shortcut(self,
-                       inplanes,
-                       planes,
-                       shortcut_cfg,
-                       kernel_size=3,
-                       padding=1):
-        assert len(inplanes) == len(planes) == len(shortcut_cfg)
-
-        shortcut_layers = nn.ModuleList()
-        for (inp, outp, layer_num) in zip(
-                inplanes, planes, shortcut_cfg):
-            assert layer_num > 0
-            layer = ShortcutConv2d(
-                inp, outp, [kernel_size] * layer_num, [padding] * layer_num)
-            shortcut_layers.append(layer)
-        return shortcut_layers
-
-    def build_upsample(self, inplanes, planes, norm_cfg=None):
-        if self.receptive_field_layer == 'deformable':
-            mdcn = ModulatedDeformConvPack(inplanes, planes, 3, stride=1,
-                                           padding=1, dilation=1, deformable_groups=1)
-        elif self.receptive_field_layer == 'conv':
-            mdcn = nn.Conv2d(inplanes, planes, 3, stride=1, padding=1, dilation=1)
-        elif self.receptive_field_layer == 'rfb':
-            mdcn = AdvancedRFB(inplanes, planes)
-        else:
-            assert False
-
-        up = nn.Upsample(scale_factor=2, mode='nearest')
-
-        layers = [mdcn]
-        if norm_cfg:
-            layers.append(build_norm_layer(norm_cfg, planes)[1])
-        layers.append(Mish())
-        layers.append(up)
-
-        return nn.Sequential(*layers)
-
     def build_head(self, out_channel, conv_num=1, head_conv_plane=None):
         head_convs = []
         head_conv_plane = self.head_conv if not head_conv_plane else head_conv_plane
         for i in range(conv_num):
-            inp = self.planes[-1] if i == 0 else head_conv_plane
-            head_convs.append(ConvModule(inp, head_conv_plane, 3, padding=1))
+            head_convs.append(ConvModule(self.final_conv_planes, head_conv_plane, 3, padding=1))
 
-        inp = self.planes[-1] if conv_num <= 0 else head_conv_plane
+        inp = self.final_conv_planes if conv_num <= 0 else head_conv_plane
         head_convs.append(nn.Conv2d(inp, out_channel, 1))
         return nn.Sequential(*head_convs)
 
     def init_weights(self):
-        for _, m in self.shortcut_layers.named_modules():
+        for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 kaiming_init(m)
-
-        for _, m in self.deconv_layers.named_modules():
-            if isinstance(m, nn.BatchNorm2d):
+            elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
@@ -158,7 +130,6 @@ class TTFHead(AnchorHead):
 
     def forward(self, feats):
         """
-
         Args:
             feats: list(tensor).
 
@@ -166,15 +137,25 @@ class TTFHead(AnchorHead):
             hm: tensor, (batch, 80, h, w).
             wh: tensor, (batch, 4, h, w) or (batch, 80 * 4, h, w).
         """
-        x = feats[-1]
-        for i, upsample_layer in enumerate(self.deconv_layers):
-            x = upsample_layer(x)
-            if i < len(self.shortcut_layers):
-                shortcut = self.shortcut_layers[i](feats[-i - 2])
-                x = x + shortcut
 
-        hm = self.hm(x)
-        wh = F.relu(self.wh(x)) * self.wh_offset_base
+        channel_norm_outputs = []
+        for idx, x in enumerate(feats):
+            out = getattr(self, f'channel_norm_layer_{idx}')(x)
+            channel_norm_outputs.append(out)
+        del feats
+
+        upsample_outputs = []
+        for idx, x in enumerate(channel_norm_outputs):
+            out = getattr(self, f'upsample_layer_{idx}')(x)
+            upsample_outputs.append(out)
+        del channel_norm_outputs
+
+        upsample_output = reduce(lambda x, y: x + y, upsample_outputs[1:], upsample_outputs[0])
+        del upsample_outputs
+        final_output = self.final_layer(upsample_output)
+
+        hm = self.hm(final_output)
+        wh = F.relu(self.wh(final_output)) * self.wh_offset_base
 
         return hm, wh
 

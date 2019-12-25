@@ -3,7 +3,7 @@ from pathlib import Path
 from detector_utils.pytorch.utils import inject_all_hooks
 inject_all_hooks()
 model = dict(
-    type='TTFNet',
+    type='AugmixTTFNet',
     pretrained='/mnt/nfs/Other/pytorch_pretrained_backbones/vovnet27_slim/vovnet27_slim__21_12_19__02_07_52.pth',
     backbone=dict(
         type='VoVNet27Slim',
@@ -12,7 +12,8 @@ model = dict(
     neck=None,
     bbox_head=dict(
         type='TTFHead',
-        inplanes=(128, 256, 384, 512),
+        build_neck=True,
+        inplanes=[128, 256, 384, 512],
         head_conv=128,
         wh_conv=64,
         hm_head_conv_num=2,
@@ -21,13 +22,12 @@ model = dict(
         wh_offset_base=16,
         wh_agnostic=True,
         wh_gaussian=True,
-        shortcut_cfg=(1, 2, 3),
         norm_cfg=dict(type='BN'),
         alpha=0.54,
         hm_weight=1.,
         wh_weight=5.,
         max_objs=256,
-        receptive_field_layer='rfb'))
+        receptive_field_layer='conv'))
 cudnn_benchmark = True
 # training and testing settings
 train_cfg = dict(
@@ -60,7 +60,7 @@ albu_train_transforms = [
     dict(type='ToGray', p=0.1),
     dict(type='Cutout', num_holes=5, max_h_size=5, max_w_size=5, fill_value=[128, 128, 128])
 ]
-width, height = 192, 160
+width, height = 192, 128
 albu_center_crop_pad = [
     dict(type='PadIfNeeded', min_height=max(width, height),
          min_width=max(width, height), border_mode=0, value=[128, 128, 128]),
@@ -75,20 +75,6 @@ train_pipeline = [
     dict(type='Resize', img_scale=(width, height), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.),
     dict(type='Albu',
-         transforms=albu_train_transforms,
-         bbox_params=dict(
-             type='BboxParams',
-             format='pascal_voc',
-             label_fields=['gt_labels'],
-             min_area=0.01,
-             min_visibility=0.1,
-             filter_lost_elements=True),
-         update_pad_shape=True,
-         keymap={
-             'img': 'image',
-             'gt_bboxes': 'bboxes'
-         }),
-    dict(type='Albu',
          transforms=albu_center_crop_pad,
          bbox_params=dict(
              type='BboxParams',
@@ -102,11 +88,12 @@ train_pipeline = [
              'img': 'image',
              'gt_bboxes': 'bboxes'
          }),
+    dict(type='AugMix', with_js_loss=True),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='DefaultFormatBundle'),
-    dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels']),
+    dict(type='Collect', keys=['img', 'img_augmix_0', 'img_augmix_1', 'gt_bboxes', 'gt_labels']),
 ]
-width, height = 192, 160
+width, height = 192, 128
 test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
@@ -151,10 +138,10 @@ optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 lr_config = dict(
     policy='torch',
     torch_scheduler='OneCycleLR',
-    max_lr=0.037)
+    max_lr=0.06)
 checkpoint_config = dict(interval=4)
 # runtime settings
-total_epochs = 70
+total_epochs = 140
 device_ids = range(8)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
