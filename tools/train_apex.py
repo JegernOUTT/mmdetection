@@ -14,7 +14,8 @@ from mmcv.parallel import scatter_kwargs
 from mmcv.runner import DistSamplerSeedHook, Runner, OptimizerHook
 
 from mmdet import __version__
-from mmdet.apis import (get_root_logger, init_dist, set_random_seed)
+from mmcv.runner import init_dist
+from mmdet.apis import (get_root_logger, set_random_seed)
 from mmdet.apis.train import build_optimizer, batch_processor
 from mmdet.core import CocoDistEvalmAPHook, wrap_fp16_model
 from mmdet.datasets import build_dataset, build_dataloader
