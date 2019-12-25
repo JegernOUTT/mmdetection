@@ -912,12 +912,10 @@ class AugMix(object):
     def _sample_level(n):
         return np.random.uniform(low=0.1, high=n)
 
-    @staticmethod
-    def _sample_geometric_level(n):
+    def _sample_geometric_level(self, n):
         return np.random.uniform(low=0., high=self._geometric_aug_level * n)
 
-    @staticmethod
-    def _get_augmentations():
+    def _get_augmentations(self):
         from PIL import Image
         from PIL import ImageOps
 
@@ -932,7 +930,7 @@ class AugMix(object):
             return ImageOps.posterize(pil_img, 4 - level)
 
         def _rotate(pil_img, level):
-            degrees = AugMix._int_parameter(AugMix._sample_geometric_level(level), 30)
+            degrees = AugMix._int_parameter(self._sample_geometric_level(level), 30)
             if np.random.uniform() > 0.5:
                 degrees = -degrees
             return pil_img.rotate(degrees, resample=Image.BILINEAR)
@@ -942,7 +940,7 @@ class AugMix(object):
             return ImageOps.solarize(pil_img, 256 - level)
 
         def _shear_x(pil_img, level):
-            level = AugMix._float_parameter(AugMix._sample_geometric_level(level), 0.3)
+            level = AugMix._float_parameter(self._sample_geometric_level(level), 0.3)
             if np.random.uniform() > 0.5:
                 level = -level
             return pil_img.transform(pil_img.size,
@@ -950,7 +948,7 @@ class AugMix(object):
                                      resample=Image.BILINEAR)
 
         def _shear_y(pil_img, level):
-            level = AugMix._float_parameter(AugMix._sample_geometric_level(level), 0.3)
+            level = AugMix._float_parameter(self._sample_geometric_level(level), 0.3)
             if np.random.uniform() > 0.5:
                 level = -level
             return pil_img.transform(pil_img.size,
@@ -959,7 +957,7 @@ class AugMix(object):
 
         def _translate_x(pil_img, level):
             max_shape = max(pil_img.size)
-            level = AugMix._int_parameter(AugMix._sample_geometric_level(level), max_shape / 3)
+            level = AugMix._int_parameter(self._sample_geometric_level(level), max_shape / 3)
             if np.random.random() > 0.5:
                 level = -level
             return pil_img.transform(pil_img.size,
@@ -968,7 +966,7 @@ class AugMix(object):
 
         def _translate_y(pil_img, level):
             max_shape = max(pil_img.size)
-            level = AugMix._int_parameter(AugMix._sample_geometric_level(level), max_shape / 3)
+            level = AugMix._int_parameter(self._sample_geometric_level(level), max_shape / 3)
             if np.random.random() > 0.5:
                 level = -level
             return pil_img.transform(pil_img.size,
