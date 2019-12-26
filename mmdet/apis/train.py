@@ -263,6 +263,17 @@ def _dist_train(model,
     runner.register_training_hooks(cfg.lr_config, optimizer_config,
                                    cfg.checkpoint_config, cfg.log_config)
     runner.register_hook(DistSamplerSeedHook())
+    if hasattr(cfg, 'extra_hooks'):
+        import detector_utils.pytorch.utils.mmcv_custom_hooks
+        for hook_args in cfg.extra_hooks:
+            hook_type_name = hook_args['type']
+            del hook_args['type']
+            assert hasattr(detector_utils.pytorch.utils.mmcv_custom_hooks, hook_type_name), \
+                f"Unknown hook name: {hook_type_name}"
+            hook_type = getattr(detector_utils.pytorch.utils.mmcv_custom_hooks, hook_type_name)
+            hook = hook_type(**hook_args)
+            runner.register_hook(hook)
+
     # register eval hooks
     if validate:
         val_dataset_cfg = cfg.data.val
@@ -327,6 +338,16 @@ def _non_dist_train(model,
         optimizer_config = cfg.optimizer_config
     runner.register_training_hooks(cfg.lr_config, optimizer_config,
                                    cfg.checkpoint_config, cfg.log_config)
+    if hasattr(cfg, 'extra_hooks'):
+        import detector_utils.pytorch.utils.mmcv_custom_hooks
+        for hook_args in cfg.extra_hooks:
+            hook_type_name = hook_args['type']
+            del hook_args['type']
+            assert hasattr(detector_utils.pytorch.utils.mmcv_custom_hooks, hook_type_name), \
+                f"Unknown hook name: {hook_type_name}"
+            hook_type = getattr(detector_utils.pytorch.utils.mmcv_custom_hooks, hook_type_name)
+            hook = hook_type(**hook_args)
+            runner.register_hook(hook)
 
     if cfg.resume_from:
         runner.resume(cfg.resume_from)
