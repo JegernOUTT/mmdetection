@@ -1,4 +1,5 @@
 from .augmix_detector import AbstractAugmixDetector
+from .knowledge_distill_detector import AbstractKnowledgeDistillationDetector
 from .single_stage import SingleStageDetector
 from ..registry import DETECTORS
 
@@ -33,3 +34,16 @@ class AugmixTTFNet(AbstractAugmixDetector):
     def get_objectness_tensor_by_bboxhead_output(self, x):
         return x[0]
 
+
+@DETECTORS.register_module
+class KnowledgeDistillationTTFNet(AbstractKnowledgeDistillationDetector):
+
+    def __init__(self,
+                 backbone,
+                 neck=None,
+                 bbox_head=None,
+                 train_cfg=None,
+                 test_cfg=None,
+                 pretrained=None):
+        super(KnowledgeDistillationTTFNet, self).__init__(backbone, neck, bbox_head, train_cfg,
+                                                          test_cfg, pretrained)
