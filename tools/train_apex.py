@@ -50,6 +50,10 @@ class ApexRunner(Runner):
 
 
 class ApexDistributedDataParallel(DistributedDataParallel):
+    def __init__(self, module, message_size=1e8, delay_allreduce=True):
+        super().__init__(module, message_size=message_size, delay_allreduce=delay_allreduce)
+        self.callback_queued = False
+
     def scatter(self, inputs, kwargs, device_ids):
         return scatter_kwargs(inputs, kwargs, device_ids, dim=0)
 
