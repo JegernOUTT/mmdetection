@@ -1,10 +1,13 @@
 from __future__ import division
 
+from detector_utils.pytorch.utils import inject_all_hooks
+inject_all_hooks()
+
 import argparse
 
 import torch
-from detector_utils.pytorch.utils import MMDataParallel
 from mmcv import Config
+from mmcv.parallel import MMDataParallel
 from mmcv.runner import Runner
 
 from mmdet import __version__
@@ -77,6 +80,16 @@ def main():
     cfg.log_config['interval'] = 1
     lr_config = {'policy': 'lrfinder', 'end_lr': args.max_lr, 'num_iter': args.num_iter}
     runner.register_training_hooks(lr_config, cfg.optimizer_config, cfg.checkpoint_config, cfg.log_config)
+    if hasattr(cfg, 'extra_hooks'):
+        import detector_utils.pytorch.utils.mmcv_custom_hooks
+        for hook_args in cfg.extra_hooks:
+            hook_type_name = hook_args['type']
+            del hook_args['type']
+            assert hasattr(detector_utils.pytorch.utils.mmcv_custom_hooks, hook_type_name), \
+                f"Unknown hook name: {hook_type_name}"
+            hook_type = getattr(detector_utils.pytorch.utils.mmcv_custom_hooks, hook_type_name)
+            hook = hook_type(**hook_args)
+            runner.register_hook(hook)
 
     if cfg.resume_from:
         runner.resume(cfg.resume_from)
