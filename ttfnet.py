@@ -1,13 +1,11 @@
 # model settings
 from pathlib import Path
-from detector_utils.pytorch.utils import inject_all_hooks
-inject_all_hooks()
 model = dict(
-    type='AugmixTTFNet',
+    type='KnowledgeDistillationTTFNet',
     pretrained='/mnt/nfs/Other/pytorch_pretrained_backbones/vovnet27_slim/vovnet27_slim__21_12_19__02_07_52.pth',
     backbone=dict(
         type='VoVNet27Slim',
-        pretrained=False, 
+        pretrained=False,
         out_indices=(1, 2, 3, 4)),
     neck=None,
     bbox_head=dict(
@@ -32,7 +30,20 @@ cudnn_benchmark = True
 # training and testing settings
 train_cfg = dict(
     vis_every_n_iters=100,
-    debug=False)
+    debug=False,
+    distillation=dict(
+        backbone_levels=[
+            dict(idx=0, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div'),
+            dict(idx=1, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div'),
+            dict(idx=2, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div'),
+            dict(idx=3, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div')
+        ],
+        head_levels=[
+            dict(idx=0, student_sigmoid=False, teacher_sigmoid=True, coeff=1., loss='js_div'),
+            dict(idx=1, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div'),
+        ]
+    )
+)
 test_cfg = dict(
     score_thr=0.01,
     max_per_img=256)
@@ -88,10 +99,10 @@ train_pipeline = [
              'img': 'image',
              'gt_bboxes': 'bboxes'
          }),
-    dict(type='AugMix', with_js_loss=True),
+    dict(type='AugMix', with_js_loss=False),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='DefaultFormatBundle'),
-    dict(type='Collect', keys=['img', 'img_augmix_0', 'img_augmix_1', 'gt_bboxes', 'gt_labels']),
+    dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels']),
 ]
 width, height = 192, 128
 test_pipeline = [
@@ -115,7 +126,7 @@ data = dict(
     train=dict(
         type=dataset_type,
         ann_file='./data_loader.py',
-        load_and_dump_config_name='train_load_configs',
+        load_and_dump_config_name='train_load_config',
         composer_config_name='train_composer_config',
         pipeline=train_pipeline),
     val=dict(
@@ -138,7 +149,7 @@ optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 lr_config = dict(
     policy='torch',
     torch_scheduler='OneCycleLR',
-    max_lr=0.06)
+    max_lr=0.01)
 checkpoint_config = dict(interval=4)
 # runtime settings
 total_epochs = 140
@@ -146,7 +157,7 @@ device_ids = range(8)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
 work_dir = './work_dirs/ttfnet'
-load_from = None
+load_from = './work_dirs/ttfnet/best.pth'
 resume_from = None
 workflow = [('train', 1)]
 log_config = dict(
@@ -155,3 +166,54 @@ log_config = dict(
         dict(type='TextLoggerHook'),
         dict(type='WandbLoggerHook', project='lpr5_vehicle', config_filename=Path.absolute(Path(__file__)))
     ])
+
+width, height = 192, 128
+extra_hooks = [
+    dict(type='KnowledgeDistillationHook',
+         # image_meta_to_update='plain',
+         teacher_model_config=dict(
+             type='AugmixTTFNet',
+             pretrained=None,
+             backbone=dict(
+                 type='VoVNet27Slim',
+                 out_indices=(1, 2, 3, 4)),
+             neck=None,
+             bbox_head=dict(
+                 type='TTFHead',
+                 build_neck=True,
+                 inplanes=[128, 256, 384, 512],
+                 head_conv=128,
+                 wh_conv=64,
+                 hm_head_conv_num=2,
+                 wh_head_conv_num=1,
+                 num_classes=6,
+                 wh_offset_base=16,
+                 wh_agnostic=True,
+                 wh_gaussian=True,
+                 norm_cfg=dict(type='BN'),
+                 alpha=0.54,
+                 hm_weight=1.,
+                 wh_weight=5.,
+                 max_objs=256,
+                 receptive_field_layer='conv')),
+         test_cfg=dict(
+             score_thr=0.3,
+             max_per_img=256),
+         test_pipeline=[
+             dict(type='LoadImageFromFile'),
+             dict(type='Resize', img_scale=(width, height), keep_ratio=True),
+             dict(type='RandomFlip', flip_ratio=0.),
+             dict(type='Albu',
+                  transforms=[
+                      dict(type='PadIfNeeded', min_height=max(width, height),
+                           min_width=max(width, height), border_mode=0, value=[128, 128, 128]),
+                      dict(type='CenterCrop', height=height, width=width)
+                  ],
+                  update_pad_shape=True,
+                  keymap={'img': 'image'}),
+             dict(type='Normalize', **img_norm_cfg),
+             dict(type='DefaultFormatBundle'),
+             dict(type='Collect', keys=['img']),
+         ],
+         model_checkpoint_path=Path('./work_dirs/ttfnet/best.pth')),
+]

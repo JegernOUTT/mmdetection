@@ -63,7 +63,6 @@ class TTFHead(AnchorHead):
         self.wh_planes = 4 if wh_agnostic else 4 * self.num_fg
         self.base_loc = None
 
-
         self.upsample_scale_factors = [1, 2, 4, 8]
         self.down_ratio = 4
         self.channel_norm_planes = 256

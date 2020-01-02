@@ -4,41 +4,31 @@ from pathlib import Path
 
 from detector_utils import *
 
-__all__ = ['train_load_configs', 'test_load_config', 'train_composer_config', 'test_composer_config']
+__all__ = ['train_load_config', 'test_load_config', 'train_composer_config', 'test_composer_config']
 
 categories = {0: 'car', 1: 'motorcycle', 2: 'bus', 3: 'truck', 4: 'van'}
 _base_path = Path('/mnt/nfs/Data/lpr/lpr_5/')
-_supervisely_train_load_config = {
+_base_output_path = Path('.')
+plain_data_loader_info = PlainImagesLoadInformation(dataset_path=_base_path / 'new_lpr_data' / 'plates_2_lpr')
+train_load_config = {
     'categories': categories,
-    'data_loader': SuperviselyLoadInformation(
-        dataset_path=_base_path / 'lpr5_supervisely'),
+    'data_loaders': [
+        SuperviselyLoadInformation(dataset_path=_base_path / 'lpr5_supervisely'),
+        LegacyPickleLoadInformation(
+            data_paths=[
+                DataPathInformation(path=_base_path / 'lpr_cam'),
+                DataPathInformation(path=_base_path / 'platesmania')
+            ])
+    ],
     'dump': DumpConfig(
         clone_images=True,
-        annotations_dump_filename=Path(f'train/supervisely_annotations/annotations'),
-        images_clone_path=Path(f'train/supervisely_images'))
+        annotations_dump_filename=Path(_base_output_path / f'train/annotations/annotations'),
+        images_clone_path=Path(_base_output_path / f'train/images'))
 }
-
-_pickle_train_load_config = {
-    'categories': categories,
-    'data_loader': LegacyPickleLoadInformation(
-        data_paths=[
-            DataPathInformation(path=_base_path / 'lpr_cam'),
-            DataPathInformation(path=_base_path / 'platesmania')
-        ]
-    ),
-    'dump': DumpConfig(
-        clone_images=True,
-        annotations_dump_filename=Path(f'train/pickle_annotations/annotations'),
-        images_clone_path=Path(f'train/pickle_images'))
-}
-
-train_load_configs = [_supervisely_train_load_config, _pickle_train_load_config]
 
 test_load_config = {
     'categories': categories,
-    'data_loader': LegacyPickleLoadInformation(
-        data_paths=[DataPathInformation(path=_base_path / 'lpr5_test')]
-    ),
+    'data_loader': LegacyPickleLoadInformation(data_paths=[DataPathInformation(path=_base_path / 'lpr5_test')]),
     'dump': DumpConfig(
         clone_images=True,
         annotations_dump_filename=Path(f'test/annotations/annotations'),
@@ -57,7 +47,7 @@ train_composer_config = {
         {'type': 'IgnoreMaskImagesRendererFilter', 'render_if_exists': False}
     ],
 
-    'sampler': {'type': 'RandomSamplerFromManyDatasets'}
+    'sampler': {'type': 'RandomSampler'}
 }
 
 test_composer_config = {
@@ -65,9 +55,14 @@ test_composer_config = {
     'sampler': {'type': 'SimpleSampler'}
 }
 
-
 if __name__ == '__main__':
-    # for config in train_load_configs:
-    #    load_and_dump(config)
-    # load_and_dump(test_load_config)
-    create_composer_and_debug(load_and_dump_configs=train_load_configs, composer_config=train_composer_config)
+    # plain_images = load(categories=train_load_config['categories'], load_information=plain_data_loader_info)
+    # for img_ann in plain_images:
+    #     img_ann.image_info.meta = 'plain'
+    train_data = load_many(categories=train_load_config['categories'],
+                           load_informations=train_load_config['data_loaders'])
+    # train_data += plain_images
+    dump(images_annotations=train_data, dump_config=train_load_config['dump'])
+
+    load_and_dump(test_load_config)
+    create_composer_and_debug(load_and_dump_configs=train_load_config, composer_config=train_composer_config)
