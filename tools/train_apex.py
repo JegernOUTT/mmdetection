@@ -1,5 +1,8 @@
 from __future__ import division
 
+from detector_utils.pytorch.utils import inject_all_hooks
+inject_all_hooks()
+
 import argparse
 import copy
 import logging
@@ -47,6 +50,10 @@ class ApexRunner(Runner):
 
 
 class ApexDistributedDataParallel(DistributedDataParallel):
+    def __init__(self, module, message_size=1e8, delay_allreduce=True):
+        super().__init__(module, message_size=message_size, delay_allreduce=delay_allreduce)
+        self.callback_queued = False
+
     def scatter(self, inputs, kwargs, device_ids):
         return scatter_kwargs(inputs, kwargs, device_ids, dim=0)
 
@@ -197,6 +204,17 @@ def main():
     # register hooks
     runner.register_training_hooks(cfg.lr_config, optimizer_config, cfg.checkpoint_config, cfg.log_config)
     runner.register_hook(DistSamplerSeedHook())
+    if hasattr(cfg, 'extra_hooks'):
+        import detector_utils.pytorch.utils.mmcv_custom_hooks
+        for hook_args in cfg.extra_hooks:
+            hook_type_name = hook_args['type']
+            del hook_args['type']
+            assert hasattr(detector_utils.pytorch.utils.mmcv_custom_hooks, hook_type_name), \
+                f"Unknown hook name: {hook_type_name}"
+            hook_type = getattr(detector_utils.pytorch.utils.mmcv_custom_hooks, hook_type_name)
+            hook = hook_type(**hook_args)
+            runner.register_hook(hook)
+
     # register eval hooks
     if args.validate:
         val_dataset_cfg = cfg.data.val

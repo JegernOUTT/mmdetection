@@ -379,6 +379,10 @@ class RandomCrop(object):
             bboxes[:, 1::2] = np.clip(bboxes[:, 1::2], 0, img_shape[0] - 1)
             results[key] = bboxes
 
+        # crop semantic seg
+        for key in results.get('seg_fields', []):
+            results[key] = results[key][crop_y1:crop_y2, crop_x1:crop_x2]
+
         # filter out the gt bboxes that are completely cropped
         if 'gt_bboxes' in results:
             gt_bboxes = results['gt_bboxes']
@@ -713,7 +717,8 @@ class Albu(object):
                  bbox_params=None,
                  keymap=None,
                  update_pad_shape=False,
-                 skip_img_without_anno=False):
+                 skip_img_without_anno=False,
+                 filter_invalid_bboxes=True):
         """
         Adds custom transformations from Albumentations lib.
         Please, visit `https://albumentations.readthedocs.io`
@@ -724,12 +729,14 @@ class Albu(object):
         keymap (dict): contains {'input key':'albumentation-style key'}
         skip_img_without_anno (bool): whether to skip the image
                                       if no ann left after aug
+        filter_invalid_bboxes (bool): remove bboxes with invalid coordinates (area <= 0)
         """
 
         self.transforms = transforms
         self.filter_lost_elements = False
         self.update_pad_shape = update_pad_shape
         self.skip_img_without_anno = skip_img_without_anno
+        self.filter_invalid_bboxes = filter_invalid_bboxes
 
         # A simple workaround to remove masks without boxes
         if (isinstance(bbox_params, dict) and 'label_fields' in bbox_params
@@ -753,6 +760,19 @@ class Albu(object):
         else:
             self.keymap_to_albu = keymap
         self.keymap_back = {v: k for k, v in self.keymap_to_albu.items()}
+
+    @staticmethod
+    def remove_invalid_bboxes(results):
+        def bbox_area(bbox):
+            return bbox[2] - bbox[0] * bbox[3] - bbox[1]
+        
+        if 'gt_bboxes' not in results:
+            return results
+
+        results['gt_bboxes'] = [bbox for bbox in results['gt_bboxes']
+                                if bbox_area(bbox) > 0.]
+
+        return results
 
     def albu_builder(self, cfg):
         """Import a module from albumentations.
@@ -804,6 +824,8 @@ class Albu(object):
 
     def __call__(self, results):
         # dict to albumentations format
+        if self.filter_invalid_bboxes:
+            results = self.remove_invalid_bboxes(results)
         results = self.mapper(results, self.keymap_to_albu)
 
         if 'bboxes' in results:

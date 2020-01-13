@@ -1,4 +1,5 @@
 from logging import error
+from typing import Tuple
 
 import numpy as np
 from detector_utils import Composer as TrassirComposer
@@ -17,6 +18,7 @@ class DsslDataset(CustomDataset):
     def __init__(self, ann_file, pipeline,
                  load_and_dump_config_name: str = 'load_and_dump_config',
                  composer_config_name: str = 'composer_config',
+                 generated_objects_fields: Tuple[str, str] = ('bboxes', 'labels'),
                  test_mode=False):
         self._load_config_filename = ann_file
         self._test_mode = test_mode
@@ -24,6 +26,8 @@ class DsslDataset(CustomDataset):
         self._composer_config_name = composer_config_name
         self._pipeline = Compose(pipeline)
         self._categories_dict = {}
+        self._generated_objects_fields = generated_objects_fields
+        self._generated_objects_default_field = self._generated_objects_fields == ('bboxes', 'labels')
         self._trassir_composer: TrassirComposer = self.load_trassir_composer(self._load_config_filename)
 
         if not self._test_mode:
@@ -80,16 +84,29 @@ class DsslDataset(CustomDataset):
 
     def get_ann_info(self, idx):
         img_annotations = self._trassir_composer[idx]
-        bbox_count = len(img_annotations.objects)
+        objects = img_annotations.objects
+        if self._generated_objects_default_field:
+            if img_annotations.generated_objects is not None:
+                objects += img_annotations.generated_objects
+
+        bbox_count = len(objects)
         ann_info = {
             'bboxes': np.array([obj.bbox.xyxy(image_size=img_annotations.image_info.size)
-                                for obj in img_annotations.objects],
+                                for obj in objects],
                                dtype=np.float32).reshape((bbox_count, 4)),
-            'labels': np.array([obj.category_id + 1 for obj in img_annotations.objects],
+            'labels': np.array([obj.category_id + 1 for obj in objects],
                                dtype=np.int64).reshape((bbox_count,)),
             'bboxes_ignore': np.zeros((0, 4), dtype=np.float32),
-            'labels_ignore': np.zeros((0, ), dtype=np.float32)
+            'labels_ignore': np.zeros((0,), dtype=np.float32)
         }
+        if not self._generated_objects_default_field and img_annotations.generated_objects is not None:
+            bbox_field, label_field = self._generated_objects_fields
+            ann_info[bbox_field] = np.array([obj.bbox.xyxy(image_size=img_annotations.image_info.size)
+                                             for obj in img_annotations.generated_objects],
+                                            dtype=np.float32).reshape((bbox_count, 4))
+            ann_info[label_field] = np.array([obj.category_id + 1 for obj in objects],
+                                             dtype=np.int64).reshape((bbox_count,))
+
         return ann_info
 
     def prepare_train_img(self, idx):
@@ -114,6 +131,10 @@ class DsslDataset(CustomDataset):
         results = dict(img_info=img_info)
         self._pre_pipeline(results)
         return self._pipeline(results)
+
+    @property
+    def composer(self):
+        return self._trassir_composer
 
     @property
     def coco(self):

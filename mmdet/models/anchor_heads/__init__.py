@@ -11,9 +11,10 @@ from .retina_sepbn_head import RetinaSepBNHead
 from .rpn_head import RPNHead
 from .ssd_head import SSDHead
 from .ttf_head import TTFHead
+from .ctdet_head import CenternetDetectionHead
 
 __all__ = [
     'AnchorHead', 'GuidedAnchorHead', 'FeatureAdaption', 'RPNHead',
     'GARPNHead', 'RetinaHead', 'RetinaSepBNHead', 'GARetinaHead', 'SSDHead', 'FCOSHead',
-    'RepPointsHead', 'FoveaHead', 'FreeAnchorRetinaHead', 'TTFHead'
+    'RepPointsHead', 'FoveaHead', 'CenternetDetectionHead', 'FreeAnchorRetinaHead', 'TTFHead'
 ]

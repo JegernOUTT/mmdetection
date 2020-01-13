@@ -1,4 +1,8 @@
 from __future__ import division
+
+from detector_utils.pytorch.utils import inject_all_hooks
+inject_all_hooks()
+
 import argparse
 import os
 import os.path as osp
