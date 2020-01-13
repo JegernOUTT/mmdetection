@@ -109,6 +109,9 @@ class SingleStageDetector(BaseDetector):
 
             bboxes = gt_bboxes[img_idx].detach().cpu().numpy()
             labels = gt_labels[img_idx].detach().cpu().numpy()
+            if len(bboxes) == 0:
+                render_image(numpy_img, render_method=RenderMethod.OpenCV)
+                continue
 
             objects = [
                 Object(bbox=bbox_from_xyxy(bbox, image_size=Size2D(width=w, height=h)), category_id=class_idx - 1)
