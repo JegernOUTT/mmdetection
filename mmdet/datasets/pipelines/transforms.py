@@ -760,13 +760,24 @@ class Albu(object):
     @staticmethod
     def remove_invalid_bboxes(results):
         def bbox_area(bbox):
-            return bbox[2] - bbox[0] * bbox[3] - bbox[1]
+            return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+
+        def filter_by_idxes(arr, idxes):
+            return [arr[idx] for idx in idxes]
         
         if 'gt_bboxes' not in results:
             return results
 
-        results['gt_bboxes'] = [bbox for bbox in results['gt_bboxes']
-                                if bbox_area(bbox) > 0.]
+        filtered_indexes = []
+        for idx in range(len(results['gt_bboxes'])):
+            if bbox_area(results['gt_bboxes'][idx]) <= 0.0001:
+                continue
+            filtered_indexes.append(idx)
+
+        results['gt_bboxes'] = filter_by_idxes(results['gt_bboxes'], filtered_indexes)
+        results['gt_labels'] = filter_by_idxes(results['gt_labels'], filtered_indexes)
+        if 'gt_masks' in results:
+            results['gt_masks'] = filter_by_idxes(results['gt_masks'], filtered_indexes)
 
         return results
 
