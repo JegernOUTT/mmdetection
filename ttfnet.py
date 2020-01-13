@@ -162,14 +162,14 @@ device_ids = range(8)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
 work_dir = './work_dirs/ttfnet'
-load_from = './work_dirs/ttfnet/latest.pth'
+load_from = './work_dirs/ttfnet/pretrained.pth'
 resume_from = None
 workflow = [('train', 1)]
 log_config = dict(
     interval=30,
     hooks=[
         dict(type='TextLoggerHook'),
-        dict(type='WandbLoggerHook', project='lpr5_vehicle', config_filename=Path.absolute(Path(__file__)))
+        # dict(type='WandbLoggerHook', project='lpr5_vehicle', config_filename=Path.absolute(Path(__file__)))
     ])
 
 width, height = 192, 128
