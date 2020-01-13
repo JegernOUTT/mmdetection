@@ -63,7 +63,6 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
     def forward_export(self, imgs):
         raise NotImplementedError
 
-    @abstractmethod
     async def async_simple_test(self, img, img_meta, **kwargs):
         raise NotImplementedError
 
