@@ -20,6 +20,7 @@ class AbstractAugmixDetector(SingleStageDetector, ABC):
                  pretrained=None):
         super(AbstractAugmixDetector, self).__init__(backbone, neck, bbox_head, train_cfg,
                                                      test_cfg, pretrained)
+        self._js_loss_coeff = train_cfg.js_loss_coeff if hasattr(train_cfg, 'js_loss_coeff') else 1.
 
     @abstractmethod
     def get_objectness_tensor_by_bboxhead_output(self, x):
@@ -55,6 +56,6 @@ class AbstractAugmixDetector(SingleStageDetector, ABC):
     def js_loss(self, logits_clean: torch.Tensor, logits_aug1: torch.Tensor, logits_aug2: torch.Tensor):
         # Clamp mixture distribution to avoid exploding KL divergence
         p_mixture = torch.clamp((logits_clean + logits_aug1 + logits_aug2) / 3., 1e-7, 1).log()
-        return 12. * (F.kl_div(p_mixture, logits_clean, reduction='batchmean') +
-                      F.kl_div(p_mixture, logits_aug1, reduction='batchmean') +
-                      F.kl_div(p_mixture, logits_aug2, reduction='batchmean')) / 3.
+        return self._js_loss_coeff * (F.kl_div(p_mixture, logits_clean, reduction='batchmean') +
+                                      F.kl_div(p_mixture, logits_aug1, reduction='batchmean') +
+                                      F.kl_div(p_mixture, logits_aug2, reduction='batchmean')) / 3.
