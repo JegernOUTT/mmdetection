@@ -35,7 +35,7 @@ cudnn_benchmark = True
 # training and testing settings
 train_cfg = dict(
     vis_every_n_iters=100,
-    debug=False,
+    debug=True,
     # distillation=dict(
     #     backbone_levels=[
     #         dict(idx=0, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div'),
