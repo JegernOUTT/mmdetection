@@ -13,7 +13,8 @@ plain_data_loader_info = PlainImagesLoadInformation(dataset_path=_base_path / 'n
 train_load_config = {
     'categories': categories,
     'data_loaders': [
-        SuperviselyLoadInformation(dataset_path=_base_path / 'lpr5_supervisely'),
+        SuperviselyLoadInformation(dataset_path=_base_path / 'lpr5_supervisely' / 'part_1'),
+        SuperviselyLoadInformation(dataset_path=_base_path / 'lpr5_supervisely' / 'part_2'),
         LegacyPickleLoadInformation(
             data_paths=[
                 DataPathInformation(path=_base_path / 'lpr_cam'),
