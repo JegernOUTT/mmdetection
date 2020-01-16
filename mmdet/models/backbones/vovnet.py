@@ -16,8 +16,14 @@ model_urls = {
 }
 
 
+_ACTIVATIONS = {
+    'mish': Mish,
+    'relu': nn.ReLU
+}
+
+
 def conv3x3(in_channels, out_channels, module_name, postfix,
-            stride=1, groups=1, kernel_size=3, padding=1):
+            stride=1, groups=1, kernel_size=3, padding=1, activation='relu'):
     """3x3 convolution with padding"""
     return [
         ('{}_{}/conv'.format(module_name, postfix),
@@ -30,11 +36,11 @@ def conv3x3(in_channels, out_channels, module_name, postfix,
         ('{}_{}/norm'.format(module_name, postfix),
          nn.BatchNorm2d(out_channels)),
         ('{}_{}/relu'.format(module_name, postfix),
-         Mish()),
+         _ACTIVATIONS[activation.lower()]),
     ]
 
 
-def conv1x1(in_channels, out_channels, module_name, postfix,
+def conv1x1(in_channels, out_channels, module_name, postfix, activation,
             stride=1, groups=1, kernel_size=1, padding=0):
     """1x1 convolution"""
     return [
@@ -48,7 +54,7 @@ def conv1x1(in_channels, out_channels, module_name, postfix,
         ('{}_{}/norm'.format(module_name, postfix),
          nn.BatchNorm2d(out_channels)),
         ('{}_{}/relu'.format(module_name, postfix),
-         Mish()),
+         _ACTIVATIONS[activation.lower()]),
     ]
 
 
@@ -59,6 +65,7 @@ class _OSA_module(nn.Module):
                  concat_ch,
                  layer_per_block,
                  module_name,
+                 activation,
                  identity=False):
         super(_OSA_module, self).__init__()
 
@@ -67,13 +74,13 @@ class _OSA_module(nn.Module):
         in_channel = in_ch
         for i in range(layer_per_block):
             self.layers.append(nn.Sequential(
-                OrderedDict(conv3x3(in_channel, stage_ch, module_name, i))))
+                OrderedDict(conv3x3(in_channel, stage_ch, module_name, i, activation=activation))))
             in_channel = stage_ch
 
         # feature aggregation
         in_channel = in_ch + layer_per_block * stage_ch
         self.concat = nn.Sequential(
-            OrderedDict(conv1x1(in_channel, concat_ch, module_name, 'concat')))
+            OrderedDict(conv1x1(in_channel, concat_ch, module_name, 'concat', activation=activation)))
 
     def forward(self, x):
         identity_feat = x
@@ -99,7 +106,8 @@ class _OSA_stage(nn.Sequential):
                  concat_ch,
                  block_per_stage,
                  layer_per_block,
-                 stage_num):
+                 stage_num,
+                 activation):
         super(_OSA_stage, self).__init__()
 
         if not stage_num == 2:
@@ -112,7 +120,8 @@ class _OSA_stage(nn.Sequential):
                                     stage_ch,
                                     concat_ch,
                                     layer_per_block,
-                                    module_name))
+                                    module_name,
+                                    activation=activation))
         for i in range(block_per_stage - 1):
             module_name = f'OSA{stage_num}_{i + 2}'
             self.add_module(module_name,
@@ -121,6 +130,7 @@ class _OSA_stage(nn.Sequential):
                                         concat_ch,
                                         layer_per_block,
                                         module_name,
+                                        activation=activation,
                                         identity=True))
 
 
@@ -131,6 +141,7 @@ class VoVNetBase(BaseBackbone):
                  config_concat_ch,
                  block_per_stage,
                  layer_per_block,
+                 activation: str = 'relu',
                  pretrained: bool = True,
                  progress: bool = True,
                  out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
@@ -142,9 +153,9 @@ class VoVNetBase(BaseBackbone):
             self.load_state_dict(state_dict)
 
         # Stem module
-        stem = conv3x3(3, 64, 'stem', '1', 2)
-        stem += conv3x3(64, 64, 'stem', '2', 1)
-        stem += conv3x3(64, 128, 'stem', '3', 2)
+        stem = conv3x3(3, 64, 'stem', '1', 2, activation=activation)
+        stem += conv3x3(64, 64, 'stem', '2', 1, activation=activation)
+        stem += conv3x3(64, 128, 'stem', '3', 2, activation=activation)
         self.add_module('stem', nn.Sequential(OrderedDict(stem)))
 
         stem_out_ch = [128]
@@ -159,7 +170,8 @@ class VoVNetBase(BaseBackbone):
                                        config_concat_ch[i],
                                        block_per_stage[i],
                                        layer_per_block,
-                                       i + 2))
+                                       i + 2,
+                                       activation))
         self._initialize_weights()
 
     @filter_by_out_idices
@@ -191,8 +203,8 @@ class VoVNet57(VoVNetBase):
         progress (bool): If True, displays a progress bar of the download to stderr
     """
 
-    def __init__(self, pretrained: bool = True, progress: bool = True,
-                 out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
+    def __init__(self, pretrained: bool = False, progress: bool = True,
+                 out_indices: Optional[Sequence[int]] = (1, 2, 3, 4), activation='relu'):
         super().__init__(
             arch='vovnet57',
             config_stage_ch=[128, 160, 192, 224],
@@ -201,6 +213,7 @@ class VoVNet57(VoVNetBase):
             layer_per_block=5,
             pretrained=pretrained,
             progress=progress,
+            activation=activation,
             out_indices=out_indices)
 
 
@@ -214,8 +227,8 @@ class VoVNet39(VoVNetBase):
         progress (bool): If True, displays a progress bar of the download to stderr
     """
 
-    def __init__(self, pretrained: bool = True, progress: bool = True,
-                 out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
+    def __init__(self, pretrained: bool = False, progress: bool = True,
+                 out_indices: Optional[Sequence[int]] = (1, 2, 3, 4), activation='relu'):
         super().__init__(
             arch='vovnet39',
             config_stage_ch=[128, 160, 192, 224],
@@ -224,6 +237,7 @@ class VoVNet39(VoVNetBase):
             layer_per_block=5,
             pretrained=pretrained,
             progress=progress,
+            activation=activation,
             out_indices=out_indices)
 
 
@@ -238,7 +252,7 @@ class VoVNet27Slim(VoVNetBase):
     """
 
     def __init__(self, pretrained: bool = False, progress: bool = True,
-                 out_indices: Optional[Sequence[int]] = (1, 2, 3, 4)):
+                 out_indices: Optional[Sequence[int]] = (1, 2, 3, 4), activation='relu'):
         super().__init__(
             arch='vovnet27_slim',
             config_stage_ch=[64, 80, 96, 112],
@@ -247,4 +261,5 @@ class VoVNet27Slim(VoVNetBase):
             layer_per_block=5,
             pretrained=pretrained,
             progress=progress,
+            activation=activation,
             out_indices=out_indices)
