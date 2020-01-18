@@ -3,6 +3,7 @@ import warnings
 import torch
 import torch.nn as nn
 from mmcv.cnn import constant_init, kaiming_init
+from mmdet.models.utils.activations import Mish
 
 from .conv_ws import ConvWS2d
 from .norm import build_norm_layer
@@ -135,11 +136,13 @@ class ConvModule(nn.Module):
         # build activation layer
         if self.with_activatation:
             # TODO: introduce `act_cfg` and supports more activation layers
-            if self.activation not in ['relu']:
+            if self.activation not in ['relu', 'mish']:
                 raise ValueError('{} is currently not supported.'.format(
                     self.activation))
             if self.activation == 'relu':
                 self.activate = nn.ReLU(inplace=inplace)
+            elif self.activation == 'mish':
+                self.activate = Mish()
 
         # Use msra init by default
         self.init_weights()
@@ -150,7 +153,7 @@ class ConvModule(nn.Module):
 
     def init_weights(self):
         nonlinearity = 'relu' if self.activation is None else self.activation
-        kaiming_init(self.conv, nonlinearity=nonlinearity)
+        kaiming_init(self.conv, nonlinearity='leaky_relu')
         if self.with_norm:
             constant_init(self.norm, 1, bias=0)
 

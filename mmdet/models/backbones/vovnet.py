@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 
 from ..registry import BACKBONES
-from ..utils.activations import Mish
+from ..utils.activations import Mish, HardMish
 from mmdet.models.backbones.base_backbone import BaseBackbone, filter_by_out_idices
 
 __all__ = ['VoVNet27Slim', 'VoVNet39', 'VoVNet57']
@@ -18,6 +18,7 @@ model_urls = {
 
 _ACTIVATIONS = {
     'mish': Mish,
+    'hardmish': HardMish,
     'relu': nn.ReLU
 }
 
@@ -36,7 +37,7 @@ def conv3x3(in_channels, out_channels, module_name, postfix,
         ('{}_{}/norm'.format(module_name, postfix),
          nn.BatchNorm2d(out_channels)),
         ('{}_{}/relu'.format(module_name, postfix),
-         _ACTIVATIONS[activation.lower()]),
+         _ACTIVATIONS[activation.lower()]()),
     ]
 
 
@@ -54,7 +55,7 @@ def conv1x1(in_channels, out_channels, module_name, postfix, activation,
         ('{}_{}/norm'.format(module_name, postfix),
          nn.BatchNorm2d(out_channels)),
         ('{}_{}/relu'.format(module_name, postfix),
-         _ACTIVATIONS[activation.lower()]),
+         _ACTIVATIONS[activation.lower()]()),
     ]
 
 

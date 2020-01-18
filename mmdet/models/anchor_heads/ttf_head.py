@@ -36,7 +36,8 @@ class TTFHead(AnchorHead):
                  wh_gaussian=True,
                  alpha=0.54,
                  beta=0.54,
-                 hm_weight=1.,
+                 objectness_hm_weight=1.,
+                 classes_hm_weight=1.,
                  wh_weight=5.,
                  max_objs=128,
                  receptive_field_layer='deformable'):
@@ -52,12 +53,14 @@ class TTFHead(AnchorHead):
         self.wh_gaussian = wh_gaussian
         self.alpha = alpha
         self.beta = beta
-        self.hm_weight = hm_weight
+        self.objectness_hm_weight = objectness_hm_weight
+        self.classes_hm_weight = classes_hm_weight
         self.wh_weight = wh_weight
         self.max_objs = max_objs
         self.receptive_field_layer = receptive_field_layer
         self.fp16_enabled = False
         self.build_neck = build_neck
+        self.norm_cfg = norm_cfg
 
         self.num_fg = num_classes - 1
         self.wh_planes = 4 if wh_agnostic else 4 * self.num_fg
@@ -76,6 +79,8 @@ class TTFHead(AnchorHead):
 
         for idx, scale_factor in enumerate(self.upsample_scale_factors):
             if scale_factor > 1:
+                # size = 128 // 4, 192 // 4
+                # self.add_module(f'upsample_layer_{idx}', nn.Upsample(size=size, mode='nearest'))
                 self.add_module(f'upsample_layer_{idx}', nn.Upsample(scale_factor=scale_factor, mode='nearest'))
             else:
                 self.add_module(f'upsample_layer_{idx}', nn.Identity())
@@ -96,13 +101,15 @@ class TTFHead(AnchorHead):
 
         # heads
         self.wh = self.build_head(self.wh_planes, wh_head_conv_num, wh_conv)
-        self.hm = self.build_head(self.num_fg, hm_head_conv_num)
+        self.objectness_hm = self.build_head(1, hm_head_conv_num)
+        self.classes_hm = self.build_head(self.num_fg, hm_head_conv_num)
 
     def build_head(self, out_channel, conv_num=1, head_conv_plane=None):
         head_convs = []
         head_conv_plane = self.head_conv if not head_conv_plane else head_conv_plane
         for i in range(conv_num):
-            head_convs.append(ConvModule(self.final_conv_planes, head_conv_plane, 3, padding=1))
+            head_convs.append(ConvModule(self.final_conv_planes, head_conv_plane, 3, padding=1, bias=False,
+                                         norm_cfg=self.norm_cfg, activation='mish'))
 
         inp = self.final_conv_planes if conv_num <= 0 else head_conv_plane
         head_convs.append(nn.Conv2d(inp, out_channel, 1))
@@ -116,12 +123,15 @@ class TTFHead(AnchorHead):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-        for _, m in self.hm.named_modules():
+        for _, m in self.objectness_hm.named_modules():
             if isinstance(m, nn.Conv2d):
                 normal_init(m, std=0.01)
+        normal_init(self.objectness_hm[-1], std=0.01, bias=bias_init_with_prob(0.01))
 
-        bias_cls = bias_init_with_prob(0.01)
-        normal_init(self.hm[-1], std=0.01, bias=bias_cls)
+        for _, m in self.classes_hm.named_modules():
+            if isinstance(m, nn.Conv2d):
+                normal_init(m, std=0.01)
+        normal_init(self.classes_hm[-1], std=0.01, bias=bias_init_with_prob(0.01))
 
         for _, m in self.wh.named_modules():
             if isinstance(m, nn.Conv2d):
@@ -153,10 +163,11 @@ class TTFHead(AnchorHead):
         del upsample_outputs
         final_output = self.final_layer(upsample_output)
 
-        hm = self.hm(final_output)
+        objectness_hm = self.objectness_hm(final_output)
+        classes_hm = self.classes_hm(final_output)
         wh = F.relu(self.wh(final_output)) * self.wh_offset_base
 
-        return hm, wh
+        return objectness_hm, classes_hm, wh
 
     def forward_export(self, feats):
         pred_heatmap, pred_wh = self.forward(feats)
@@ -180,38 +191,45 @@ class TTFHead(AnchorHead):
 
         return res
 
-    @force_fp32(apply_to=('pred_heatmap', 'pred_wh'))
+    @force_fp32(apply_to=('pred_objectness_hm', 'pred_classes_hm', 'pred_wh'))
     def get_bboxes(self,
-                   pred_heatmap,
+                   pred_objectness_hm,
+                   pred_classes_hm,
                    pred_wh,
                    img_metas,
                    cfg,
                    rescale=False):
-        batch, cat, height, width = pred_heatmap.size()
-        pred_heatmap = pred_heatmap.detach().sigmoid_()
+        batch, cat, height, width = pred_classes_hm.size()
+        pred_objectness_hm = pred_objectness_hm.detach().sigmoid_()
+        pred_classes_hm = pred_classes_hm.detach().sigmoid_()
         wh = pred_wh.detach()
 
         # perform nms on heatmaps
-        heat = simple_nms(pred_heatmap)  # used maxpool to filter the max score
+        objectness = simple_nms(pred_objectness_hm)  # used maxpool to filter the max score
 
         topk = getattr(cfg, 'max_per_img', 100)
         # (batch, topk)
-        scores, inds, clses, ys, xs = self._topk(heat, topk=topk)
+        scores, inds, ys, xs = self._topk(objectness, topk=topk)
         xs = xs.view(batch, topk, 1) * self.down_ratio
         ys = ys.view(batch, topk, 1) * self.down_ratio
 
         wh = wh.permute(0, 2, 3, 1).contiguous()
         wh = wh.view(wh.size(0), -1, wh.size(3))
-        inds = inds.unsqueeze(2).expand(inds.size(0), inds.size(1), wh.size(2))
-        wh = wh.gather(1, inds)
+        wh_inds = inds.unsqueeze(2).expand(inds.size(0), inds.size(1), wh.size(2))
+        wh = wh.gather(1, wh_inds)
+
+        classes = pred_classes_hm.permute(0, 2, 3, 1).contiguous()
+        classes = classes.view(classes.size(0), -1, classes.size(3))
+        classes_inds = inds.unsqueeze(2).expand(inds.size(0), inds.size(1), self.num_fg)
+        classes = classes.gather(1, classes_inds)
 
         if not self.wh_agnostic:
             wh = wh.view(-1, topk, self.num_fg, 4)
-            wh = torch.gather(wh, 2, clses[..., None, None].expand(
-                clses.size(0), clses.size(1), 1, 4).long())
+            wh = torch.gather(wh, 2, pred_classes_hm[..., None, None].expand(
+                pred_classes_hm.size(0), pred_classes_hm.size(1), 1, 4).long())
 
         wh = wh.view(batch, topk, 4)
-        clses = clses.view(batch, topk, 1).float()
+        classes = classes.view(batch, topk, self.num_fg).float()
         scores = scores.view(batch, topk, 1)
 
         bboxes = torch.cat([xs - wh[..., [0]], ys - wh[..., [1]],
@@ -225,7 +243,7 @@ class TTFHead(AnchorHead):
 
             scores_per_img = scores_per_img[scores_keep]
             bboxes_per_img = bboxes[idx][scores_keep]
-            labels_per_img = clses[idx][scores_keep]
+            labels_per_img = classes[idx][scores_keep].argmax(dim=1)
             img_shape = img_metas[idx]['pad_shape']
             bboxes_per_img[:, 0::2] = bboxes_per_img[:, 0::2].clamp(min=0, max=img_shape[1] - 1)
             bboxes_per_img[:, 1::2] = bboxes_per_img[:, 1::2].clamp(min=0, max=img_shape[0] - 1)
@@ -240,9 +258,10 @@ class TTFHead(AnchorHead):
 
         return result_list
 
-    @force_fp32(apply_to=('pred_heatmap', 'pred_wh'))
+    @force_fp32(apply_to=('pred_objectness_hm', 'pred_classes_hm', 'pred_wh'))
     def loss(self,
-             pred_heatmap,
+             pred_objectness_hm,
+             pred_classes_hm,
              pred_wh,
              gt_bboxes,
              gt_labels,
@@ -250,13 +269,15 @@ class TTFHead(AnchorHead):
              cfg,
              gt_bboxes_ignore=None):
         all_targets = self.target_generator(gt_bboxes, gt_labels, img_metas)
-        hm_loss, wh_loss = self.loss_calc(pred_heatmap, pred_wh, *all_targets)
-        return {'losses/ttfnet_loss_heatmap': hm_loss, 'losses/ttfnet_loss_wh': wh_loss}
+        objectness_hm_loss, classes_hm_loss, wh_loss = self.loss_calc(
+            pred_objectness_hm, pred_classes_hm, pred_wh, *all_targets)
+        return {'losses/ttfnet_loss_objectness_hm': objectness_hm_loss,
+                'losses/ttfnet_loss_classes_hm': classes_hm_loss,
+                'losses/ttfnet_loss_wh': wh_loss}
 
     def _topk(self, scores, topk):
         batch, cat, height, width = scores.size()
 
-        # both are (batch, 80, topk)
         topk_scores, topk_inds = torch.topk(scores.view(batch, cat, -1), topk)
 
         topk_inds = topk_inds % (height * width)
@@ -265,13 +286,12 @@ class TTFHead(AnchorHead):
 
         # both are (batch, topk). select topk from 80*topk
         topk_score, topk_ind = torch.topk(topk_scores.view(batch, -1), topk)
-        topk_clses = (topk_ind / topk).int()
         topk_ind = topk_ind.unsqueeze(2)
         topk_inds = topk_inds.view(batch, -1, 1).gather(1, topk_ind).view(batch, topk)
         topk_ys = topk_ys.view(batch, -1, 1).gather(1, topk_ind).view(batch, topk)
         topk_xs = topk_xs.view(batch, -1, 1).gather(1, topk_ind).view(batch, topk)
 
-        return topk_score, topk_inds, topk_clses, topk_ys, topk_xs
+        return topk_score, topk_inds, topk_ys, topk_xs
 
     def gaussian_2d(self, shape, sigma_x=1, sigma_y=1):
         m, n = [(ss - 1.) / 2. for ss in shape]
@@ -316,15 +336,15 @@ class TTFHead(AnchorHead):
             reg_weight: tensor, same as box_target
         """
         output_h, output_w = feat_shape
-        heatmap_channel = self.num_fg
 
-        heatmap = gt_boxes.new_zeros((heatmap_channel, output_h, output_w))
+        objectness_heatmap = gt_boxes.new_zeros((1, output_h, output_w))
+        classes_heatmap = gt_boxes.new_zeros((self.num_fg, output_h, output_w))
         fake_heatmap = gt_boxes.new_zeros((output_h, output_w))
         box_target = gt_boxes.new_ones((self.wh_planes, output_h, output_w)) * -1
         reg_weight = gt_boxes.new_zeros((self.wh_planes // 4, output_h, output_w))
 
         if len(gt_boxes) == 0:
-            return heatmap, box_target, reg_weight
+            return objectness_heatmap, classes_heatmap, box_target, reg_weight
 
         if self.wh_area_process == 'log':
             boxes_areas_log = bbox_areas(gt_boxes).log()
@@ -377,7 +397,8 @@ class TTFHead(AnchorHead):
             fake_heatmap = fake_heatmap.zero_()
             self.draw_truncate_gaussian(fake_heatmap, ct_ints[k],
                                         h_radiuses_alpha[k].item(), w_radiuses_alpha[k].item())
-            heatmap[cls_id] = torch.max(heatmap[cls_id], fake_heatmap)
+            objectness_heatmap[0] = torch.max(objectness_heatmap[0], fake_heatmap)
+            classes_heatmap[cls_id] = torch.max(classes_heatmap[cls_id], fake_heatmap)
 
             if self.wh_gaussian:
                 if self.alpha != self.beta:
@@ -406,7 +427,7 @@ class TTFHead(AnchorHead):
                 reg_weight[cls_id, box_target_inds] = \
                     boxes_area_topk_log[k] / box_target_inds.sum().float()
 
-        return heatmap, box_target, reg_weight
+        return objectness_heatmap, classes_heatmap, box_target, reg_weight
 
     def target_generator(self, gt_boxes, gt_labels, img_metas):
         """
@@ -424,22 +445,25 @@ class TTFHead(AnchorHead):
         with torch.no_grad():
             feat_shape = (img_metas[0]['pad_shape'][0] // self.down_ratio,
                           img_metas[0]['pad_shape'][1] // self.down_ratio)
-            heatmap, box_target, reg_weight = multi_apply(
+            objectness_heatmap, classes_heatmap, box_target, reg_weight = multi_apply(
                 self.target_single_image,
                 gt_boxes,
                 gt_labels,
                 feat_shape=feat_shape
             )
 
-            heatmap, box_target = [torch.stack(t, dim=0).detach() for t in [heatmap, box_target]]
+            objectness_heatmap, classes_heatmap, box_target =\
+                [torch.stack(t, dim=0).detach() for t in [objectness_heatmap, classes_heatmap, box_target]]
             reg_weight = torch.stack(reg_weight, dim=0).detach()
 
-            return heatmap, box_target, reg_weight
+            return objectness_heatmap, classes_heatmap, box_target, reg_weight
 
     def loss_calc(self,
-                  pred_hm,
+                  pred_objectness_hm,
+                  pred_classes_hm,
                   pred_wh,
-                  heatmap,
+                  gt_objectness_hm,
+                  gt_classes_hm,
                   box_target,
                   wh_weight):
         """
@@ -455,19 +479,21 @@ class TTFHead(AnchorHead):
             hm_loss
             wh_loss
         """
-        H, W = pred_hm.shape[2:]
-        pred_hm = torch.clamp(pred_hm.sigmoid_(), min=1e-4, max=1 - 1e-4)
-        hm_loss = ct_focal_loss(pred_hm, heatmap) * self.hm_weight
+        H, W = pred_objectness_hm.shape[2:]
+        pred_objectness_hm = torch.clamp(pred_objectness_hm.sigmoid_(), min=1e-4, max=1 - 1e-4)
+        pred_classes_hm = torch.clamp(pred_classes_hm.sigmoid_(), min=1e-4, max=1 - 1e-4)
+        objectness_hm_loss = ct_focal_loss(pred_objectness_hm, gt_objectness_hm) * self.objectness_hm_weight
+        classes_hm_loss = ct_focal_loss(pred_classes_hm, gt_classes_hm) * self.classes_hm_weight
 
         mask = wh_weight.view(-1, H, W)
         avg_factor = mask.sum() + 1e-4
 
         if self.base_loc is None or H != self.base_loc.shape[1] or W != self.base_loc.shape[2]:
             base_step = self.down_ratio
-            shifts_x = torch.arange(0, (W - 1) * base_step + 1, base_step,
-                                    dtype=torch.float32, device=heatmap.device)
+            shifts_x = torch.arange(0, (W - 1) * base_step + 1, base_step, dtype=torch.float32,
+                                    device=gt_objectness_hm.device)
             shifts_y = torch.arange(0, (H - 1) * base_step + 1, base_step,
-                                    dtype=torch.float32, device=heatmap.device)
+                                    dtype=torch.float32, device=gt_objectness_hm.device)
             shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
             self.base_loc = torch.stack((shift_x, shift_y), dim=0)  # (2, h, w)
 
@@ -478,7 +504,7 @@ class TTFHead(AnchorHead):
         boxes = box_target.permute(0, 2, 3, 1)
         wh_loss = diou_loss(pred_boxes, boxes, mask, avg_factor=avg_factor) * self.wh_weight
 
-        return hm_loss, wh_loss
+        return objectness_hm_loss, classes_hm_loss, wh_loss
 
 
 class ShortcutConv2d(nn.Module):

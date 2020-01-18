@@ -80,6 +80,8 @@ def inference_detector(model, img):
     # prepare data
     data = dict(img=img)
     data = test_pipeline(data)
+    import cv2
+    cv2.imshow('image', (np.transpose(data['img'][0].detach().numpy(), (1, 2, 0)) * 255).astype(np.uint8))
     data = scatter(collate([data], samples_per_gpu=1), [device])[0]
     # forward the model
     with torch.no_grad():

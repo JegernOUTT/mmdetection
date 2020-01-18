@@ -12,7 +12,7 @@ from mmdet.models import build_detector
 
 def similarity_test(pytorch_model, onnx_output_path, height_width):
     h, w = height_width
-    input_data = np.random.random((1, 3, h, w)).astype(np.float32)
+    input_data = np.random.random((32, 3, h, w)).astype(np.float32)
     with torch.no_grad():
         pytorch_out = pytorch_model(torch.from_numpy(input_data))
     pytorch_out = [o.cpu().numpy() for o in pytorch_out]
@@ -52,17 +52,17 @@ def main():
     load_checkpoint(model, args.checkpoint, map_location='cpu')
     model.eval()
 
-    output_h, output_w = 512, 512
-    for k, v in cfg.items():
-        if k.startswith('test'):
-            for k_, v_ in v.items():
-                if k_.endswith('img_scale'):
-                    output_w, output_h = v_
+    output_h, output_w = 96, 160
+    # for k, v in cfg.__dir__().items():
+    #     if k.startswith('test'):
+    #         for k_, v_ in v.__dir__().items():
+    #             if k_.endswith('img_scale'):
+    #                 output_w, output_h = v_
 
     assert 'forward_export' in model.__dir__()
     model.forward = model.forward_export
     with torch.no_grad():
-        export(model, torch.zeros((1, 3, output_h, output_w), dtype=torch.float32),
+        export(model, torch.zeros((32, 3, output_h, output_w), dtype=torch.float32),
                output_path,
                opset_version=9,
                do_constant_folding=True)

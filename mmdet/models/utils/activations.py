@@ -18,7 +18,7 @@ class HardMish(nn.Module):
         super().__init__()
 
     def forward(self, x):
-        return x * (nn.functional.relu(x + 3.) / 3.)
+        return x * (nn.functional.relu(x + 3) / 3)
 
 
 class Swish(nn.Module):
