@@ -188,7 +188,7 @@ class TTFHead(AnchorHead):
         base_step = self.down_ratio
         shifts_x = np.arange(0, width * base_step, base_step, dtype=np.float32)
         shifts_y = np.arange(0, height * base_step, base_step, dtype=np.float32)
-        shift_y, shift_x = np.meshgrid(shifts_x, shifts_y)
+        shift_x, shift_y = np.meshgrid(shifts_x, shifts_y)
         base_loc = torch.tensor(np.stack((shift_x, shift_y), axis=0)).to(pred_wh.device)  # (2, h, w)
 
         # (batch, h, w, 4)
