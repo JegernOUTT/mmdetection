@@ -1,3 +1,5 @@
+from abc import ABC
+
 from .augmix_detector import AbstractAugmixDetector
 from .knowledge_distill_detector import AbstractKnowledgeDistillationDetector
 from .single_stage import SingleStageDetector
@@ -5,7 +7,7 @@ from ..registry import DETECTORS
 
 
 @DETECTORS.register_module
-class TTFNet(SingleStageDetector):
+class TTFNet(SingleStageDetector, ABC):
 
     def __init__(self,
                  backbone,

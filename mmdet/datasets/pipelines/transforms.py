@@ -439,6 +439,10 @@ class RandomCrop(object):
             bboxes[:, 1::2] = np.clip(bboxes[:, 1::2], 0, img_shape[0] - 1)
             results[key] = bboxes
 
+        # crop semantic seg
+        for key in results.get('seg_fields', []):
+            results[key] = results[key][crop_y1:crop_y2, crop_x1:crop_x2]
+
         # filter out the gt bboxes that are completely cropped
         if 'gt_bboxes' in results:
             gt_bboxes = results['gt_bboxes']
@@ -816,6 +820,30 @@ class Albu(object):
         else:
             self.keymap_to_albu = keymap
         self.keymap_back = {v: k for k, v in self.keymap_to_albu.items()}
+
+    @staticmethod
+    def remove_invalid_bboxes(results):
+        def bbox_area(bbox):
+            return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+
+        def filter_by_idxes(arr, idxes):
+            return [arr[idx] for idx in idxes]
+
+        if 'gt_bboxes' not in results:
+            return results
+
+        filtered_indexes = []
+        for idx in range(len(results['gt_bboxes'])):
+            if bbox_area(results['gt_bboxes'][idx]) <= 0.0001:
+                continue
+            filtered_indexes.append(idx)
+
+        results['gt_bboxes'] = filter_by_idxes(results['gt_bboxes'], filtered_indexes)
+        results['gt_labels'] = filter_by_idxes(results['gt_labels'], filtered_indexes)
+        if 'gt_masks' in results:
+            results['gt_masks'] = filter_by_idxes(results['gt_masks'], filtered_indexes)
+
+        return results
 
     @staticmethod
     def remove_invalid_bboxes(results):

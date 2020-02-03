@@ -1,69 +1,42 @@
 # model settings
 model = dict(
-    type='RetinaNet',
-    pretrained='torchvision://resnet50',
+    type='CenterNet',
+    pretrained='modelzoo://centernet_hg',
     backbone=dict(
-        type='ResNet',
-        depth=50,
-        num_stages=4,
-        out_indices=(0, 1, 2, 3),
-        frozen_stages=1,
-        style='pytorch'),
-    neck=[
-        dict(
-            type='FPN',
-            in_channels=[256, 512, 1024, 2048],
-            out_channels=256,
-            start_level=1,
-            add_extra_convs=True,
-            num_outs=5),
-        dict(
-            type='BFP',
-            in_channels=256,
-            num_levels=5,
-            refine_level=1,
-            refine_type='non_local')
-    ],
+        type='DLA',
+        base_name='dla34'),
+    neck=None,
     bbox_head=dict(
-        type='RetinaHead',
+        type='CenternetDetectionHead',
+        require_upsampling=False,
+        inplanes=(64, 128, 256, 512),
+        planes=(256, 128, 64),
+        base_down_ratio=32,
+        hm_head_conv=128,
+        hm_offset_heads_conv=128,
+        wh_heads_conv=128,
+        with_deformable=True,
+        hm_head_conv_num=2,
+        hm_offset_head_conv_num=2,
+        wh_head_conv_num=2,
         num_classes=81,
-        in_channels=256,
-        stacked_convs=4,
-        feat_channels=256,
-        octave_base_scale=4,
-        scales_per_octave=3,
-        anchor_ratios=[0.5, 1.0, 2.0],
-        anchor_strides=[8, 16, 32, 64, 128],
-        target_means=[.0, .0, .0, .0],
-        target_stds=[1.0, 1.0, 1.0, 1.0],
-        loss_cls=dict(
-            type='FocalLoss',
-            use_sigmoid=True,
-            gamma=2.0,
-            alpha=0.25,
-            loss_weight=1.0),
-        loss_bbox=dict(
-            type='BalancedL1Loss',
-            alpha=0.5,
-            gamma=1.5,
-            beta=0.11,
-            loss_weight=1.0)))
+        shortcut_kernel=3,
+        norm_cfg=dict(type='BN'),
+        shortcut_cfg=(1, 2, 3),
+        num_stacks=1,  # It can be > 1 in backbones such as hourglass
+        ellipse_gaussian=True,
+        exp_wh=False,
+        hm_weight=1.,
+        hm_offset_weight=1.,
+        wh_weight=0.1,
+        max_objs=512))
+cudnn_benchmark = True
 # training and testing settings
 train_cfg = dict(
-    assigner=dict(
-        type='MaxIoUAssigner',
-        pos_iou_thr=0.5,
-        neg_iou_thr=0.4,
-        min_pos_iou=0,
-        ignore_iof_thr=-1),
-    allowed_border=-1,
-    pos_weight=-1,
+    vis_every_n_iters=100,
     debug=False)
 test_cfg = dict(
-    nms_pre=1000,
-    min_bbox_size=0,
-    score_thr=0.05,
-    nms=dict(type='nms', iou_thr=0.5),
+    score_thr=0.01,
     max_per_img=100)
 # dataset settings
 dataset_type = 'CocoDataset'
@@ -73,7 +46,7 @@ img_norm_cfg = dict(
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    dict(type='Resize', img_scale=(1333, 800), keep_ratio=True),
+    dict(type='Resize', img_scale=(512, 512), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.5),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='Pad', size_divisor=32),
@@ -84,7 +57,7 @@ test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
         type='MultiScaleFlipAug',
-        img_scale=(1333, 800),
+        img_scale=(512, 512),
         flip=False,
         transforms=[
             dict(type='Resize', keep_ratio=True),
@@ -114,16 +87,16 @@ data = dict(
         img_prefix=data_root + 'val2017/',
         pipeline=test_pipeline))
 # optimizer
-optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='Adam', lr=2.5e-4)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
     policy='step',
     warmup='linear',
-    warmup_iters=500,
+    warmup_iters=300,
     warmup_ratio=1.0 / 3,
-    step=[8, 11])
-checkpoint_config = dict(interval=1)
+    step=[90, 120])
+checkpoint_config = dict(interval=4)
 # yapf:disable
 log_config = dict(
     interval=50,
@@ -133,10 +106,11 @@ log_config = dict(
     ])
 # yapf:enable
 # runtime settings
-total_epochs = 12
+total_epochs = 140
+device_ids = range(8)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = './work_dirs/libra_retinanet_r50_fpn_1x'
+work_dir = './work_dirs/centernet_dla34'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

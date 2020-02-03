@@ -15,10 +15,12 @@ from .rpn import RPN
 from .single_stage import SingleStageDetector
 from .two_stage import TwoStageDetector
 from .ttfnet import TTFNet, AugmixTTFNet, KnowledgeDistillationTTFNet
+from .centernet import CenterNet
 
 __all__ = [
     'BaseDetector', 'SingleStageDetector', 'TwoStageDetector', 'RPN',
     'FastRCNN', 'FasterRCNN', 'MaskRCNN', 'CascadeRCNN', 'HybridTaskCascade',
     'DoubleHeadRCNN', 'RetinaNet', 'FCOS', 'GridRCNN', 'MaskScoringRCNN',
     'RepPointsDetector', 'FOVEA', 'TTFNet', 'AugmixTTFNet', 'KnowledgeDistillationTTFNet'
+    'RepPointsDetector', 'FOVEA', 'CenterNet', 'TTFNet', 'AugmixTTFNet'
 ]
