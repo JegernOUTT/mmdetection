@@ -177,7 +177,7 @@ class RFBBasicConv(nn.Module):
                  padding=0,
                  dilation=1,
                  groups=1,
-                 relu=True,
+                 activation=None,
                  bn=True,
                  bias=False):
         super(RFBBasicConv, self).__init__()
@@ -185,45 +185,58 @@ class RFBBasicConv(nn.Module):
         self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding,
                               dilation=dilation, groups=groups, bias=bias)
         self.bn = nn.BatchNorm2d(out_planes, eps=1e-5, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        elif activation == 'mish':
+            self.activation = Mish()
+        else:
+            self.activation = None
 
     def forward(self, x):
         x = self.conv(x)
         if self.bn is not None:
             x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
+        if self.activation is not None:
+            x = self.activation(x)
         return x
 
 
 class BasicRFB(nn.Module):
-    def __init__(self, in_planes, out_planes, stride=1, scale=1.0, visual=1):
+    def __init__(self, in_planes, out_planes, stride=1, scale=1.0, visual=1, activation='relu'):
         super(BasicRFB, self).__init__()
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 8
         self.branch0 = nn.Sequential(
-            RFBBasicConv(in_planes, 2 * inter_planes, kernel_size=1, stride=stride),
+            RFBBasicConv(in_planes, 2 * inter_planes, kernel_size=1, stride=stride, activation=activation),
             RFBBasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1,
-                         padding=visual, dilation=visual, relu=False)
+                         padding=visual, dilation=visual, activation=None)
         )
         self.branch1 = nn.Sequential(
-            RFBBasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
-            RFBBasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)),
+            RFBBasicConv(in_planes, inter_planes, kernel_size=1, stride=1, activation=activation),
+            RFBBasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1),
+                         activation=activation),
             RFBBasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=visual + 1,
-                         dilation=visual + 1, relu=False)
+                         dilation=visual + 1, activation=None)
         )
         self.branch2 = nn.Sequential(
-            RFBBasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
-            RFBBasicConv(inter_planes, (inter_planes // 2) * 3, kernel_size=3, stride=1, padding=1),
-            RFBBasicConv((inter_planes // 2) * 3, 2 * inter_planes, kernel_size=3, stride=stride, padding=1),
+            RFBBasicConv(in_planes, inter_planes, kernel_size=1, stride=1, activation=activation),
+            RFBBasicConv(inter_planes, (inter_planes // 2) * 3, kernel_size=3, stride=1, padding=1,
+                         activation=activation),
+            RFBBasicConv((inter_planes // 2) * 3, 2 * inter_planes, kernel_size=3, stride=stride, padding=1,
+                         activation=activation),
             RFBBasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=2 * visual + 1,
-                         dilation=2 * visual + 1, relu=False)
+                         dilation=2 * visual + 1, activation=None)
         )
 
-        self.ConvLinear = RFBBasicConv(6 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.shortcut = RFBBasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
+        self.ConvLinear = RFBBasicConv(6 * inter_planes, out_planes, kernel_size=1, stride=1, activation=None)
+        self.shortcut = RFBBasicConv(in_planes, out_planes, kernel_size=1, stride=stride, activation=None)
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        elif activation == 'mish':
+            self.activation = Mish()
+        else:
+            self.activation = None
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -234,42 +247,51 @@ class BasicRFB(nn.Module):
         out = self.ConvLinear(out)
         short = self.shortcut(x)
         out = out * self.scale + short
-        out = self.relu(out)
+        out = self.activation(out)
 
         return out
 
 
 class AdvancedRFB(nn.Module):
-    def __init__(self, in_planes, out_planes, stride=1, scale=1.0):
+    def __init__(self, in_planes, out_planes, stride=1, scale=1.0, activation='relu'):
         super(AdvancedRFB, self).__init__()
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 4
 
         self.branch0 = nn.Sequential(
-            RFBBasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
-            RFBBasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False)
+            RFBBasicConv(in_planes, inter_planes, kernel_size=1, stride=1, activation=activation),
+            RFBBasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, activation=None)
         )
         self.branch1 = nn.Sequential(
-            RFBBasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
-            RFBBasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)),
-            RFBBasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
+            RFBBasicConv(in_planes, inter_planes, kernel_size=1, stride=1, activation=activation),
+            RFBBasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0),
+                         activation=activation),
+            RFBBasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, activation=None)
         )
         self.branch2 = nn.Sequential(
-            RFBBasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
-            RFBBasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)),
-            RFBBasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
+            RFBBasicConv(in_planes, inter_planes, kernel_size=1, stride=1, activation=activation),
+            RFBBasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride,
+                         activation=activation, padding=(0, 1)),
+            RFBBasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, activation=None)
         )
         self.branch3 = nn.Sequential(
-            RFBBasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1),
-            RFBBasicConv(inter_planes // 2, (inter_planes // 4) * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)),
-            RFBBasicConv((inter_planes // 4) * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)),
-            RFBBasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False)
+            RFBBasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1, activation=activation),
+            RFBBasicConv(inter_planes // 2, (inter_planes // 4) * 3, kernel_size=(1, 3), stride=1, padding=(0, 1),
+                         activation=activation),
+            RFBBasicConv((inter_planes // 4) * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0),
+                         activation=activation),
+            RFBBasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, activation=None)
         )
 
-        self.ConvLinear = RFBBasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.shortcut = RFBBasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
+        self.ConvLinear = RFBBasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, activation=None)
+        self.shortcut = RFBBasicConv(in_planes, out_planes, kernel_size=1, stride=stride, activation=None)
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        elif activation == 'mish':
+            self.activation = Mish()
+        else:
+            self.activation = None
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -281,6 +303,6 @@ class AdvancedRFB(nn.Module):
         out = self.ConvLinear(out)
         short = self.shortcut(x)
         out = out * self.scale + short
-        out = self.relu(out)
+        out = self.activation(out)
 
         return out

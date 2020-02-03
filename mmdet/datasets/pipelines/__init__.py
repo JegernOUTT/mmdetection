@@ -4,13 +4,13 @@ from .formating import (Collect, ImageToTensor, ToDataContainer, ToTensor,
 from .loading import LoadAnnotations, LoadImageFromFile, LoadProposals
 from .test_aug import MultiScaleFlipAug
 from .transforms import (Albu, AugMix, Expand, MinIoURandomCrop, Normalize, Pad,
-                         PhotoMetricDistortion, RandomCrop, RandomFlip, Resize,
+                         PhotoMetricDistortion, RandomCrop, RandomFlip, Resize, ResizeWithKeepAspectRatio,
                          SegRescale)
 
 __all__ = [
     'Compose', 'to_tensor', 'ToTensor', 'ImageToTensor', 'ToDataContainer',
     'Transpose', 'Collect', 'LoadAnnotations', 'LoadImageFromFile',
-    'LoadProposals', 'MultiScaleFlipAug', 'Resize', 'RandomFlip', 'Pad',
+    'LoadProposals', 'MultiScaleFlipAug', 'Resize', 'ResizeWithKeepAspectRatio', 'RandomFlip', 'Pad',
     'RandomCrop', 'Normalize', 'SegRescale', 'MinIoURandomCrop', 'Expand',
     'PhotoMetricDistortion', 'Albu', 'AugMix'
 ]

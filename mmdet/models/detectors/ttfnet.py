@@ -32,7 +32,7 @@ class AugmixTTFNet(AbstractAugmixDetector):
                                            test_cfg, pretrained)
 
     def get_objectness_tensor_by_bboxhead_output(self, x):
-        return x[0]
+        return x[0],
 
 
 @DETECTORS.register_module

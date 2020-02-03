@@ -179,6 +179,66 @@ class Resize(object):
 
 
 @PIPELINES.register_module
+class ResizeWithKeepAspectRatio(object):
+
+    def __init__(self, max_width, max_height):
+        self.max_width = max_width
+        self.max_height = max_height
+
+    def _compute_scale(self, results):
+        image_h, image_w = results['img_info']['height'], results['img_info']['width']
+        results['scale'] = min(self.max_width / image_w, self.max_height / image_h)
+        results['scale_idx'] = 0
+
+    def _resize_img(self, results):
+        img, scale_factor = mmcv.imrescale(
+            results['img'], results['scale'], return_scale=True)
+        results['img'] = img
+        results['img_shape'] = img.shape
+        results['pad_shape'] = img.shape  # in case that there is no padding
+        results['scale_factor'] = scale_factor
+        results['keep_ratio'] = True
+
+    def _resize_bboxes(self, results):
+        img_shape = results['img_shape']
+        for key in results.get('bbox_fields', []):
+            bboxes = results[key] * results['scale_factor']
+            bboxes[:, 0::2] = np.clip(bboxes[:, 0::2], 0, img_shape[1] - 1)
+            bboxes[:, 1::2] = np.clip(bboxes[:, 1::2], 0, img_shape[0] - 1)
+            results[key] = bboxes
+
+    def _resize_masks(self, results):
+        for key in results.get('mask_fields', []):
+            if results[key] is None:
+                continue
+            masks = [
+                mmcv.imrescale(
+                    mask, results['scale_factor'], interpolation='nearest')
+                for mask in results[key]
+            ]
+            results[key] = masks
+
+    def _resize_seg(self, results):
+        for key in results.get('seg_fields', []):
+            gt_seg = mmcv.imrescale(
+                results[key], results['scale'], interpolation='nearest')
+            results['gt_semantic_seg'] = gt_seg
+
+    def __call__(self, results):
+        self._compute_scale(results)
+        self._resize_img(results)
+        self._resize_bboxes(results)
+        self._resize_masks(results)
+        self._resize_seg(results)
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += '(max_width={}, max_height={})'.format(self.max_width, self.max_height)
+        return repr_str
+
+
+@PIPELINES.register_module
 class RandomFlip(object):
     """Flip the image & bbox & mask.
 
@@ -729,18 +789,18 @@ class Albu(object):
         """
 
         self.transforms = transforms
-        self.filter_lost_elements = False
+        self.filter_lost_elements = bbox_params['filter_lost_elements']
         self.update_pad_shape = update_pad_shape
         self.skip_img_without_anno = skip_img_without_anno
         self.filter_invalid_bboxes = filter_invalid_bboxes
 
         # A simple workaround to remove masks without boxes
-        if (isinstance(bbox_params, dict) and 'label_fields' in bbox_params
-                and 'filter_lost_elements' in bbox_params):
-            self.filter_lost_elements = True
-            self.origin_label_fields = bbox_params['label_fields']
-            bbox_params['label_fields'] = ['idx_mapper']
-            del bbox_params['filter_lost_elements']
+        # if (isinstance(bbox_params, dict) and 'label_fields' in bbox_params
+        #         and 'filter_lost_elements' in bbox_params):
+        #     self.filter_lost_elements = True
+        self.origin_label_fields = bbox_params['label_fields']
+        #     bbox_params['label_fields'] = ['idx_mapper']
+        del bbox_params['filter_lost_elements']
 
         self.bbox_params = (
             self.albu_builder(bbox_params) if bbox_params else None)
@@ -764,7 +824,7 @@ class Albu(object):
 
         def filter_by_idxes(arr, idxes):
             return [arr[idx] for idx in idxes]
-        
+
         if 'gt_bboxes' not in results:
             return results
 
@@ -1008,7 +1068,7 @@ class AugMix(object):
 
     def __call__(self, results):
         assert results['img'].dtype == np.uint8, "AugMix must come before normalization node"
-        
+
         def _make_aug_img(original_img):
             def _apply_op(image, op, severity):
                 from PIL import Image

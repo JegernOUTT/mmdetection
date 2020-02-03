@@ -8,7 +8,7 @@ from mmcv.cnn import normal_init, kaiming_init
 
 from mmdet.core import multi_apply, bbox_areas, force_fp32
 from mmdet.core.anchor.guided_anchor_target import calc_region
-from mmdet.models.losses import ct_focal_loss, diou_loss
+from mmdet.models.losses import ct_focal_loss, ct_sigmoid_loss, giou_loss, diou_loss, ciou_loss
 from mmdet.models.utils import (build_norm_layer, bias_init_with_prob, ConvModule, AdvancedRFB)
 from mmdet.ops import ModulatedDeformConvPack
 from mmdet.ops.nms import simple_nms
@@ -23,26 +23,32 @@ class TTFHead(AnchorHead):
     def __init__(self,
                  inplanes=(64, 128, 256, 512),
                  planes=(256, 128, 64),
+                 base_down_ratio=32,
                  head_conv=256,
                  wh_conv=64,
                  hm_head_conv_num=2,
                  wh_head_conv_num=2,
                  num_classes=81,
+                 shortcut_kernel=3,
                  norm_cfg=dict(type='BN'),
-                 build_neck: bool = True,
+                 shortcut_cfg=(1, 2, 3),
                  wh_offset_base=16.,
                  wh_area_process='log',
                  wh_agnostic=True,
                  wh_gaussian=True,
                  alpha=0.54,
                  beta=0.54,
-                 objectness_hm_weight=1.,
-                 classes_hm_weight=1.,
+                 hm_weight=1.,
                  wh_weight=5.,
                  max_objs=128,
                  receptive_field_layer='deformable'):
         super(AnchorHead, self).__init__()
+        assert len(planes) in [2, 3, 4]
+        shortcut_num = min(len(inplanes) - 1, len(planes))
+        assert shortcut_num == len(shortcut_cfg)
         assert wh_area_process in [None, 'norm', 'log', 'sqrt']
+
+        assert receptive_field_layer in ['deformable', 'conv', 'rfb']
 
         self.planes = planes
         self.head_conv = head_conv
@@ -53,85 +59,102 @@ class TTFHead(AnchorHead):
         self.wh_gaussian = wh_gaussian
         self.alpha = alpha
         self.beta = beta
-        self.objectness_hm_weight = objectness_hm_weight
-        self.classes_hm_weight = classes_hm_weight
+        self.hm_weight = hm_weight
         self.wh_weight = wh_weight
         self.max_objs = max_objs
         self.receptive_field_layer = receptive_field_layer
         self.fp16_enabled = False
-        self.build_neck = build_neck
         self.norm_cfg = norm_cfg
 
+        self.down_ratio = base_down_ratio // 2 ** len(planes)
         self.num_fg = num_classes - 1
         self.wh_planes = 4 if wh_agnostic else 4 * self.num_fg
         self.base_loc = None
 
-        self.upsample_scale_factors = [1, 2, 4, 8]
-        self.down_ratio = 4
-        self.channel_norm_planes = 256
-        self.final_conv_planes = 128
+        # repeat upsampling n times. 32x to 4x by default.
+        self.deconv_layers = nn.ModuleList([
+            self.build_upsample(inplanes[-1], planes[0], norm_cfg=norm_cfg),
+            self.build_upsample(planes[0], planes[1], norm_cfg=norm_cfg)
+        ])
+        for i in range(2, len(planes)):
+            self.deconv_layers.append(
+                self.build_upsample(planes[i - 1], planes[i], norm_cfg=norm_cfg))
 
-        for idx, plane in enumerate(inplanes):
-            self.add_module(f'channel_norm_layer_{idx}',
-                            nn.Sequential(nn.Conv2d(plane, self.channel_norm_planes, 1, padding=0, bias=False),
-                                          build_norm_layer(norm_cfg, self.channel_norm_planes)[1],
-                                          Mish()))
-
-        for idx, scale_factor in enumerate(self.upsample_scale_factors):
-            if scale_factor > 1:
-                # size = 128 // 4, 192 // 4
-                # self.add_module(f'upsample_layer_{idx}', nn.Upsample(size=size, mode='nearest'))
-                self.add_module(f'upsample_layer_{idx}', nn.Upsample(scale_factor=scale_factor, mode='nearest'))
-            else:
-                self.add_module(f'upsample_layer_{idx}', nn.Identity())
-
-        if self.receptive_field_layer == 'deformable':
-            final_conv = ModulatedDeformConvPack(self.channel_norm_planes, self.final_conv_planes, 3, stride=1,
-                                                 padding=1, dilation=1, deformable_groups=1)
-        elif self.receptive_field_layer == 'conv':
-            final_conv = nn.Conv2d(self.channel_norm_planes, self.final_conv_planes,
-                                   3, stride=1, padding=1, dilation=1, bias=False)
-        elif self.receptive_field_layer == 'rfb':
-            final_conv = AdvancedRFB(self.channel_norm_planes, self.final_conv_planes)
-        else:
-            assert False
-        self.final_layer = nn.Sequential(final_conv,
-                                         build_norm_layer(norm_cfg, self.final_conv_planes)[1],
-                                         Mish())
+        padding = (shortcut_kernel - 1) // 2
+        self.shortcut_layers = self.build_shortcut(
+            inplanes[:-1][::-1][:shortcut_num], planes[:shortcut_num], shortcut_cfg,
+            kernel_size=shortcut_kernel, padding=padding)
 
         # heads
         self.wh = self.build_head(self.wh_planes, wh_head_conv_num, wh_conv)
-        self.objectness_hm = self.build_head(1, hm_head_conv_num)
-        self.classes_hm = self.build_head(self.num_fg, hm_head_conv_num)
+        self.hm = self.build_head(1 + self.num_fg, hm_head_conv_num)
+
+    def build_shortcut(self,
+                       inplanes,
+                       planes,
+                       shortcut_cfg,
+                       kernel_size=3,
+                       padding=1):
+        assert len(inplanes) == len(planes) == len(shortcut_cfg)
+
+        shortcut_layers = nn.ModuleList()
+        for (inp, outp, layer_num) in zip(
+                inplanes, planes, shortcut_cfg):
+            assert layer_num > 0
+            layer = ShortcutConv2d(
+                inp, outp, [kernel_size] * layer_num, [padding] * layer_num)
+            shortcut_layers.append(layer)
+        return shortcut_layers
+
+    def build_upsample(self, inplanes, planes, norm_cfg=None):
+        if self.receptive_field_layer == 'deformable':
+            mdcn = ModulatedDeformConvPack(inplanes, planes, 3, stride=1,
+                                           padding=1, dilation=1, deformable_groups=1)
+        elif self.receptive_field_layer == 'conv':
+            mdcn = nn.Conv2d(inplanes, planes, 3, stride=1, padding=1, dilation=1)
+        elif self.receptive_field_layer == 'rfb':
+            mdcn = AdvancedRFB(inplanes, planes, activation='mish')
+        else:
+            assert False
+
+        up = nn.Upsample(scale_factor=2, mode='nearest')
+
+        layers = [mdcn]
+        if norm_cfg:
+            layers.append(build_norm_layer(norm_cfg, planes)[1])
+        layers.append(Mish())
+        layers.append(up)
+
+        return nn.Sequential(*layers)
 
     def build_head(self, out_channel, conv_num=1, head_conv_plane=None):
         head_convs = []
         head_conv_plane = self.head_conv if not head_conv_plane else head_conv_plane
         for i in range(conv_num):
-            head_convs.append(ConvModule(self.final_conv_planes, head_conv_plane, 3, padding=1, bias=False,
+            inp = self.planes[-1] if i == 0 else head_conv_plane
+            head_convs.append(ConvModule(inp, head_conv_plane, 3, padding=1,
                                          norm_cfg=self.norm_cfg, activation='mish'))
 
-        inp = self.final_conv_planes if conv_num <= 0 else head_conv_plane
+        inp = self.planes[-1] if conv_num <= 0 else head_conv_plane
         head_convs.append(nn.Conv2d(inp, out_channel, 1))
         return nn.Sequential(*head_convs)
 
     def init_weights(self):
-        for m in self.modules():
+        for _, m in self.shortcut_layers.named_modules():
             if isinstance(m, nn.Conv2d):
                 kaiming_init(m)
-            elif isinstance(m, nn.BatchNorm2d):
+
+        for _, m in self.deconv_layers.named_modules():
+            if isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-        for _, m in self.objectness_hm.named_modules():
+        for _, m in self.hm.named_modules():
             if isinstance(m, nn.Conv2d):
                 normal_init(m, std=0.01)
-        normal_init(self.objectness_hm[-1], std=0.01, bias=bias_init_with_prob(0.01))
 
-        for _, m in self.classes_hm.named_modules():
-            if isinstance(m, nn.Conv2d):
-                normal_init(m, std=0.01)
-        normal_init(self.classes_hm[-1], std=0.01, bias=bias_init_with_prob(0.01))
+        bias_cls = bias_init_with_prob(0.01)
+        normal_init(self.hm[-1], std=0.01, bias=bias_cls)
 
         for _, m in self.wh.named_modules():
             if isinstance(m, nn.Conv2d):
@@ -139,6 +162,7 @@ class TTFHead(AnchorHead):
 
     def forward(self, feats):
         """
+
         Args:
             feats: list(tensor).
 
@@ -146,28 +170,17 @@ class TTFHead(AnchorHead):
             hm: tensor, (batch, 80, h, w).
             wh: tensor, (batch, 4, h, w) or (batch, 80 * 4, h, w).
         """
+        x = feats[-1]
+        for i, upsample_layer in enumerate(self.deconv_layers):
+            x = upsample_layer(x)
+            if i < len(self.shortcut_layers):
+                shortcut = self.shortcut_layers[i](feats[-i - 2])
+                x = x + shortcut
 
-        channel_norm_outputs = []
-        for idx, x in enumerate(feats):
-            out = getattr(self, f'channel_norm_layer_{idx}')(x)
-            channel_norm_outputs.append(out)
-        del feats
+        hm = self.hm(x)
+        wh = F.relu(self.wh(x)) * self.wh_offset_base
 
-        upsample_outputs = []
-        for idx, x in enumerate(channel_norm_outputs):
-            out = getattr(self, f'upsample_layer_{idx}')(x)
-            upsample_outputs.append(out)
-        del channel_norm_outputs
-
-        upsample_output = reduce(lambda x, y: x + y, upsample_outputs[1:], upsample_outputs[0])
-        del upsample_outputs
-        final_output = self.final_layer(upsample_output)
-
-        objectness_hm = self.objectness_hm(final_output)
-        classes_hm = self.classes_hm(final_output)
-        wh = F.relu(self.wh(final_output)) * self.wh_offset_base
-
-        return objectness_hm, classes_hm, wh
+        return hm, wh
 
     def forward_export(self, feats):
         pred_heatmap, pred_wh = self.forward(feats)
@@ -180,7 +193,7 @@ class TTFHead(AnchorHead):
         base_step = self.down_ratio
         shifts_x = np.arange(0, width * base_step, base_step, dtype=np.float32)
         shifts_y = np.arange(0, height * base_step, base_step, dtype=np.float32)
-        shift_y, shift_x = np.meshgrid(shifts_x, shifts_y)
+        shift_x, shift_y = np.meshgrid(shifts_x, shifts_y)
         base_loc = torch.tensor(np.stack((shift_x, shift_y), axis=0)).to(pred_wh.device)  # (2, h, w)
 
         # (batch, h, w, 4)
@@ -191,45 +204,38 @@ class TTFHead(AnchorHead):
 
         return res
 
-    @force_fp32(apply_to=('pred_objectness_hm', 'pred_classes_hm', 'pred_wh'))
+    @force_fp32(apply_to=('pred_heatmap', 'pred_wh'))
     def get_bboxes(self,
-                   pred_objectness_hm,
-                   pred_classes_hm,
+                   pred_heatmap,
                    pred_wh,
                    img_metas,
                    cfg,
                    rescale=False):
-        batch, cat, height, width = pred_classes_hm.size()
-        pred_objectness_hm = pred_objectness_hm.detach().sigmoid_()
-        pred_classes_hm = pred_classes_hm.detach().sigmoid_()
+        batch, cat, height, width = pred_heatmap.size()
+        pred_heatmap = pred_heatmap.detach().sigmoid_()
         wh = pred_wh.detach()
 
         # perform nms on heatmaps
-        objectness = simple_nms(pred_objectness_hm)  # used maxpool to filter the max score
+        heat = simple_nms(pred_heatmap)  # used maxpool to filter the max score
 
         topk = getattr(cfg, 'max_per_img', 100)
         # (batch, topk)
-        scores, inds, ys, xs = self._topk(objectness, topk=topk)
+        scores, inds, clses, ys, xs = self._topk(heat, topk=topk)
         xs = xs.view(batch, topk, 1) * self.down_ratio
         ys = ys.view(batch, topk, 1) * self.down_ratio
 
         wh = wh.permute(0, 2, 3, 1).contiguous()
         wh = wh.view(wh.size(0), -1, wh.size(3))
-        wh_inds = inds.unsqueeze(2).expand(inds.size(0), inds.size(1), wh.size(2))
-        wh = wh.gather(1, wh_inds)
-
-        classes = pred_classes_hm.permute(0, 2, 3, 1).contiguous()
-        classes = classes.view(classes.size(0), -1, classes.size(3))
-        classes_inds = inds.unsqueeze(2).expand(inds.size(0), inds.size(1), self.num_fg)
-        classes = classes.gather(1, classes_inds)
+        inds = inds.unsqueeze(2).expand(inds.size(0), inds.size(1), wh.size(2))
+        wh = wh.gather(1, inds)
 
         if not self.wh_agnostic:
             wh = wh.view(-1, topk, self.num_fg, 4)
-            wh = torch.gather(wh, 2, pred_classes_hm[..., None, None].expand(
-                pred_classes_hm.size(0), pred_classes_hm.size(1), 1, 4).long())
+            wh = torch.gather(wh, 2, clses[..., None, None].expand(
+                clses.size(0), clses.size(1), 1, 4).long())
 
         wh = wh.view(batch, topk, 4)
-        classes = classes.view(batch, topk, self.num_fg).float()
+        clses = clses.view(batch, topk, 1).float()
         scores = scores.view(batch, topk, 1)
 
         bboxes = torch.cat([xs - wh[..., [0]], ys - wh[..., [1]],
@@ -243,7 +249,7 @@ class TTFHead(AnchorHead):
 
             scores_per_img = scores_per_img[scores_keep]
             bboxes_per_img = bboxes[idx][scores_keep]
-            labels_per_img = classes[idx][scores_keep].argmax(dim=1)
+            labels_per_img = clses[idx][scores_keep]
             img_shape = img_metas[idx]['pad_shape']
             bboxes_per_img[:, 0::2] = bboxes_per_img[:, 0::2].clamp(min=0, max=img_shape[1] - 1)
             bboxes_per_img[:, 1::2] = bboxes_per_img[:, 1::2].clamp(min=0, max=img_shape[0] - 1)
@@ -258,10 +264,9 @@ class TTFHead(AnchorHead):
 
         return result_list
 
-    @force_fp32(apply_to=('pred_objectness_hm', 'pred_classes_hm', 'pred_wh'))
+    @force_fp32(apply_to=('pred_heatmap', 'pred_wh'))
     def loss(self,
-             pred_objectness_hm,
-             pred_classes_hm,
+             pred_heatmap,
              pred_wh,
              gt_bboxes,
              gt_labels,
@@ -269,29 +274,28 @@ class TTFHead(AnchorHead):
              cfg,
              gt_bboxes_ignore=None):
         all_targets = self.target_generator(gt_bboxes, gt_labels, img_metas)
-        objectness_hm_loss, classes_hm_loss, wh_loss = self.loss_calc(
-            pred_objectness_hm, pred_classes_hm, pred_wh, *all_targets)
-        return {'losses/ttfnet_loss_objectness_hm': objectness_hm_loss,
-                'losses/ttfnet_loss_classes_hm': classes_hm_loss,
+        hm_objectness_loss, hm_loss, wh_loss = self.loss_calc(pred_heatmap, pred_wh, *all_targets)
+        return {'losses/ttfnet_loss_objectness': hm_objectness_loss,
+                'losses/ttfnet_loss_heatmap': hm_loss,
                 'losses/ttfnet_loss_wh': wh_loss}
 
     def _topk(self, scores, topk):
+        confs = scores[:, [0], ...]
+        scores = scores[:, 1:, ...]
         batch, cat, height, width = scores.size()
 
-        topk_scores, topk_inds = torch.topk(scores.view(batch, cat, -1), topk)
+        # both are (batch, 80, topk)
+        topk_scores, topk_inds = torch.topk(confs.view(batch, -1), topk)
 
         topk_inds = topk_inds % (height * width)
         topk_ys = (topk_inds / width).int().float()
         topk_xs = (topk_inds % width).int().float()
 
         # both are (batch, topk). select topk from 80*topk
-        topk_score, topk_ind = torch.topk(topk_scores.view(batch, -1), topk)
-        topk_ind = topk_ind.unsqueeze(2)
-        topk_inds = topk_inds.view(batch, -1, 1).gather(1, topk_ind).view(batch, topk)
-        topk_ys = topk_ys.view(batch, -1, 1).gather(1, topk_ind).view(batch, topk)
-        topk_xs = topk_xs.view(batch, -1, 1).gather(1, topk_ind).view(batch, topk)
+        # real_top_scores = topk_scores.sum(dim=1)
+        topk_clses = scores.view(batch, cat, -1).gather(2, topk_inds.repeat(1, cat, 1)).argmax(dim=1)
 
-        return topk_score, topk_inds, topk_ys, topk_xs
+        return topk_scores, topk_inds, topk_clses, topk_ys, topk_xs
 
     def gaussian_2d(self, shape, sigma_x=1, sigma_y=1):
         m, n = [(ss - 1.) / 2. for ss in shape]
@@ -336,15 +340,15 @@ class TTFHead(AnchorHead):
             reg_weight: tensor, same as box_target
         """
         output_h, output_w = feat_shape
+        heatmap_channel = self.num_fg
 
-        objectness_heatmap = gt_boxes.new_zeros((1, output_h, output_w))
-        classes_heatmap = gt_boxes.new_zeros((self.num_fg, output_h, output_w))
+        heatmap = gt_boxes.new_zeros((1 + heatmap_channel, output_h, output_w))
         fake_heatmap = gt_boxes.new_zeros((output_h, output_w))
         box_target = gt_boxes.new_ones((self.wh_planes, output_h, output_w)) * -1
         reg_weight = gt_boxes.new_zeros((self.wh_planes // 4, output_h, output_w))
 
         if len(gt_boxes) == 0:
-            return objectness_heatmap, classes_heatmap, box_target, reg_weight
+            return heatmap, box_target, reg_weight
 
         if self.wh_area_process == 'log':
             boxes_areas_log = bbox_areas(gt_boxes).log()
@@ -397,8 +401,8 @@ class TTFHead(AnchorHead):
             fake_heatmap = fake_heatmap.zero_()
             self.draw_truncate_gaussian(fake_heatmap, ct_ints[k],
                                         h_radiuses_alpha[k].item(), w_radiuses_alpha[k].item())
-            objectness_heatmap[0] = torch.max(objectness_heatmap[0], fake_heatmap)
-            classes_heatmap[cls_id] = torch.max(classes_heatmap[cls_id], fake_heatmap)
+            heatmap[0] = torch.max(heatmap[0], fake_heatmap)
+            heatmap[cls_id + 1] = torch.max(heatmap[cls_id + 1], fake_heatmap)
 
             if self.wh_gaussian:
                 if self.alpha != self.beta:
@@ -427,7 +431,7 @@ class TTFHead(AnchorHead):
                 reg_weight[cls_id, box_target_inds] = \
                     boxes_area_topk_log[k] / box_target_inds.sum().float()
 
-        return objectness_heatmap, classes_heatmap, box_target, reg_weight
+        return heatmap, box_target, reg_weight
 
     def target_generator(self, gt_boxes, gt_labels, img_metas):
         """
@@ -445,25 +449,22 @@ class TTFHead(AnchorHead):
         with torch.no_grad():
             feat_shape = (img_metas[0]['pad_shape'][0] // self.down_ratio,
                           img_metas[0]['pad_shape'][1] // self.down_ratio)
-            objectness_heatmap, classes_heatmap, box_target, reg_weight = multi_apply(
+            heatmap, box_target, reg_weight = multi_apply(
                 self.target_single_image,
                 gt_boxes,
                 gt_labels,
                 feat_shape=feat_shape
             )
 
-            objectness_heatmap, classes_heatmap, box_target =\
-                [torch.stack(t, dim=0).detach() for t in [objectness_heatmap, classes_heatmap, box_target]]
+            heatmap, box_target = [torch.stack(t, dim=0).detach() for t in [heatmap, box_target]]
             reg_weight = torch.stack(reg_weight, dim=0).detach()
 
-            return objectness_heatmap, classes_heatmap, box_target, reg_weight
+            return heatmap, box_target, reg_weight
 
     def loss_calc(self,
-                  pred_objectness_hm,
-                  pred_classes_hm,
+                  pred_hm,
                   pred_wh,
-                  gt_objectness_hm,
-                  gt_classes_hm,
+                  heatmap,
                   box_target,
                   wh_weight):
         """
@@ -479,21 +480,20 @@ class TTFHead(AnchorHead):
             hm_loss
             wh_loss
         """
-        H, W = pred_objectness_hm.shape[2:]
-        pred_objectness_hm = torch.clamp(pred_objectness_hm.sigmoid_(), min=1e-4, max=1 - 1e-4)
-        pred_classes_hm = torch.clamp(pred_classes_hm.sigmoid_(), min=1e-4, max=1 - 1e-4)
-        objectness_hm_loss = ct_focal_loss(pred_objectness_hm, gt_objectness_hm) * self.objectness_hm_weight
-        classes_hm_loss = ct_focal_loss(pred_classes_hm, gt_classes_hm) * self.classes_hm_weight
+        H, W = pred_hm.shape[2:]
+        pred_hm = torch.clamp(pred_hm.sigmoid_(), min=1e-4, max=1 - 1e-4)
+        hm_objectness_loss = ct_focal_loss(pred_hm[:, [0], ...], heatmap[:, [0], ...])
+        hm_loss = ct_focal_loss(pred_hm[:, 1:, ...], heatmap[:, 1:, ...]) * self.hm_weight
 
         mask = wh_weight.view(-1, H, W)
         avg_factor = mask.sum() + 1e-4
 
         if self.base_loc is None or H != self.base_loc.shape[1] or W != self.base_loc.shape[2]:
             base_step = self.down_ratio
-            shifts_x = torch.arange(0, (W - 1) * base_step + 1, base_step, dtype=torch.float32,
-                                    device=gt_objectness_hm.device)
+            shifts_x = torch.arange(0, (W - 1) * base_step + 1, base_step,
+                                    dtype=torch.float32, device=heatmap.device)
             shifts_y = torch.arange(0, (H - 1) * base_step + 1, base_step,
-                                    dtype=torch.float32, device=gt_objectness_hm.device)
+                                    dtype=torch.float32, device=heatmap.device)
             shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
             self.base_loc = torch.stack((shift_x, shift_y), dim=0)  # (2, h, w)
 
@@ -504,7 +504,7 @@ class TTFHead(AnchorHead):
         boxes = box_target.permute(0, 2, 3, 1)
         wh_loss = diou_loss(pred_boxes, boxes, mask, avg_factor=avg_factor) * self.wh_weight
 
-        return objectness_hm_loss, classes_hm_loss, wh_loss
+        return hm_objectness_loss, hm_loss, wh_loss
 
 
 class ShortcutConv2d(nn.Module):
@@ -520,7 +520,8 @@ class ShortcutConv2d(nn.Module):
         layers = []
         for i, (kernel_size, padding) in enumerate(zip(kernel_sizes, paddings)):
             inc = in_channels if i == 0 else out_channels
-            layers.append(nn.Conv2d(inc, out_channels, kernel_size, padding=padding))
+            layers.append(nn.Conv2d(inc, out_channels, kernel_size, padding=padding, bias=False))
+            layers.append(nn.BatchNorm2d(out_channels))
             if i < len(kernel_sizes) - 1 or activation_last:
                 layers.append(Mish())
 

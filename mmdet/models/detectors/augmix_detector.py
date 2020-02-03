@@ -35,14 +35,19 @@ class AbstractAugmixDetector(SingleStageDetector, ABC):
                       gt_bboxes,
                       gt_labels,
                       gt_bboxes_ignore=None):
-        objectness_outs = []
+        objectness_outs = {}
 
         def _calc_losses(img):
             if 'debug' in self.train_cfg and self.train_cfg['debug']:
                 self._debug_data_pipeline(img, img_metas, gt_bboxes, gt_labels)
             x = self.extract_feat(img)
             outs = self.bbox_head(x)
-            objectness_outs.append(self.get_objectness_tensor_by_bboxhead_output(outs))
+
+            obj_outs = self.get_objectness_tensor_by_bboxhead_output(outs)
+            for idx, out in enumerate(obj_outs):
+                if idx not in objectness_outs:
+                    objectness_outs[idx] = []
+                objectness_outs[idx].append(out)
             loss_inputs = outs + (gt_bboxes, gt_labels, img_metas, self.train_cfg)
             losses = self.bbox_head.loss(*loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
             return losses
@@ -50,7 +55,8 @@ class AbstractAugmixDetector(SingleStageDetector, ABC):
         losses = _calc_losses(img)
         _calc_losses(img_augmix_0)
         _calc_losses(img_augmix_1)
-        losses['js_loss'] = self.js_loss(*objectness_outs)
+        for idx, outs in objectness_outs.items():
+            losses[f'js_loss_{idx}'] = self.js_loss(*outs)
         return losses
 
     def js_loss(self, logits_clean: torch.Tensor, logits_aug1: torch.Tensor, logits_aug2: torch.Tensor):
