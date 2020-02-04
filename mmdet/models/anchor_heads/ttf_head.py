@@ -113,7 +113,7 @@ class TTFHead(AnchorHead):
         elif self.receptive_field_layer == 'conv':
             mdcn = nn.Conv2d(inplanes, planes, 3, stride=1, padding=1, dilation=1)
         elif self.receptive_field_layer == 'rfb':
-            mdcn = AdvancedRFB(inplanes, planes, activation='mish')
+            mdcn = AdvancedRFB(inplanes, planes)
         else:
             assert False
 

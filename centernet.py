@@ -1,48 +1,42 @@
 # model settings
 from pathlib import Path
 model = dict(
-    type='TTFNet',
+    type='AugmixCenterNet',
     pretrained='/mnt/nfs/Other/pytorch_pretrained_backbones/vovnet27_slim/vovnet27_slim__21_12_19__02_07_52.pth',
     backbone=dict(
         type='VoVNet27Slim',
-        activation='mish',
+        activation='relu',
         out_indices=(1, 2, 3, 4)),
     neck=None,
     bbox_head=dict(
-        type='TTFHead',
-        inplanes=[128, 256, 384, 512],
-        head_conv=128,
-        wh_conv=64,
+        type='CenternetDetectionHead',
+        require_upsampling=True,
+        inplanes=(128, 256, 384, 512),
+        planes=(256, 128, 64),
+        base_down_ratio=32,
+        hm_head_conv=128,
+        hm_offset_heads_conv=128,
+        wh_heads_conv=128,
+        with_deformable=False,
         hm_head_conv_num=2,
-        wh_head_conv_num=1,
+        hm_offset_head_conv_num=2,
+        wh_head_conv_num=2,
         num_classes=6,
-        wh_offset_base=16,
-        wh_agnostic=True,
-        wh_gaussian=True,
+        shortcut_kernel=3,
         norm_cfg=dict(type='BN'),
-        alpha=0.54,
+        shortcut_cfg=(1, 2, 3),
+        num_stacks=1,  # It can be > 1 in backbones such as hourglass
+        ellipse_gaussian=True,
+        exp_wh=False,
         hm_weight=1.,
-        wh_weight=5.,
-        max_objs=32,
-        receptive_field_layer='conv'))
+        hm_offset_weight=1.,
+        wh_weight=0.1,
+        max_objs=512))
 cudnn_benchmark = True
 # training and testing settings
 train_cfg = dict(
     vis_every_n_iters=100,
     debug=False,
-    distillation=dict(
-        # backbone_levels=[
-        #     dict(idx=0, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div'),
-        #     dict(idx=1, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div'),
-        #     dict(idx=2, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div'),
-        #     dict(idx=3, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div')
-        # ],
-        backbone_levels=[],
-        head_levels=[
-            dict(idx=0, student_sigmoid=False, teacher_sigmoid=True, coeff=1, loss='js_div'),
-            dict(idx=1, student_sigmoid=True, teacher_sigmoid=True, coeff=1, loss='js_div'),
-        ]
-    )
 )
 test_cfg = dict(
     score_thr=0.01,
@@ -79,11 +73,11 @@ train_pipeline = [
              'img': 'image',
              'gt_bboxes': 'bboxes'
          }),
-    dict(type='AugMix', with_js_loss=False),
+    dict(type='AugMix', with_js_loss=True),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img',
-                               # 'img_augmix_0', 'img_augmix_1',
+                               'img_augmix_0', 'img_augmix_1',
                                'gt_bboxes', 'gt_labels']),
 ]
 width, height = 128, 96
@@ -103,7 +97,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=64,
+    imgs_per_gpu=32,
     workers_per_gpu=16,
     train=dict(
         type=dataset_type,
@@ -131,14 +125,14 @@ optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 lr_config = dict(
     policy='torch',
     torch_scheduler='OneCycleLR',
-    max_lr=0.04)
+    max_lr=0.02)
 checkpoint_config = dict(interval=4)
 # runtime settings
 total_epochs = 200
 device_ids = range(8)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = './work_dirs/ttfnet'
+work_dir = './work_dirs/centernet'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]
@@ -148,42 +142,3 @@ log_config = dict(
         dict(type='TextLoggerHook'),
         dict(type='WandbLoggerHook', project='lpr5_vehicle', config_filename=Path.absolute(Path(__file__)))
     ])
-# extra_hooks = [
-#     dict(type='KnowledgeDistillationHook',
-#          # image_meta_to_update='plain',
-#          teacher_model_config=dict(
-#              type='TTFNet',
-#              pretrained=None,
-#              backbone=dict(
-#                  type='VoVNet39',
-#                  activation='mish',
-#                  out_indices=(1, 2, 3, 4)),
-#              neck=dict(
-#                  type='BIFPN',
-#                  in_channels=[256, 512, 768, 1024],
-#                  num_outs=4,
-#                  out_channels=256
-#              ),
-#              bbox_head=dict(
-#                  type='TTFHead',
-#                  build_neck=True,
-#                  inplanes=[256, 256, 256, 256],
-#                  head_conv=128,
-#                  wh_conv=64,
-#                  hm_head_conv_num=2,
-#                  wh_head_conv_num=1,
-#                  num_classes=6,
-#                  wh_offset_base=16,
-#                  wh_agnostic=True,
-#                  wh_gaussian=True,
-#                  norm_cfg=dict(type='BN'),
-#                  alpha=0.54,
-#                  hm_weight=1.,
-#                  wh_weight=5.,
-#                  max_objs=32,
-#                  receptive_field_layer='conv')),
-#          test_cfg=dict(
-#              score_thr=0.3,
-#              max_per_img=32),
-#          model_checkpoint_path=Path('./work_dirs/ttfnet/teacher_160_96.pth')),
-# ]

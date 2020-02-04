@@ -6,7 +6,7 @@ from detector_utils import *
 
 __all__ = ['train_load_config', 'test_load_config', 'train_composer_config', 'test_composer_config']
 
-categories = {0: 'car', 1: 'motorcycle', 2: 'bus', 3: 'truck', 4: 'van'}
+categories = {0: 'car', 1: 'motorcycle', 2: 'bus', 3: 'truck', 4: 'van', 5: 'plate'}
 _base_path = Path('/mnt/nfs/Data/lpr/lpr_5/')
 _base_output_path = Path('/media/fast/lpr5_vehicle')
 plain_data_loader_info = PlainImagesLoadInformation(dataset_path=_base_path / 'new_lpr_data' / 'plates_2_lpr')
@@ -41,7 +41,7 @@ train_composer_config = {
     'filters': [
         {'type': 'ImageValidityFilter'},
         {'type': 'BboxAbsoluteSizeFilter',
-         'min_size': Size2DF(width=0.1, height=0.1),
+         'min_size': Size2DF(width=0.008, height=0.008),
          'max_size': Size2DF(width=1., height=1.)},
         {'type': 'ImageSizeFilter',
          'min_size': Size2D(width=32, height=32),

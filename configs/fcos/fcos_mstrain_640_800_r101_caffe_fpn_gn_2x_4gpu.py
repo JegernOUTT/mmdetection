@@ -1,30 +1,23 @@
 # model settings
 model = dict(
     type='FCOS',
-    pretrained='open-mmlab://resnet101_caffe',
+    pretrained='/mnt/nfs/Other/pytorch_pretrained_backbones/vovnet27_slim/vovnet27_slim__21_12_19__02_07_52.pth',
     backbone=dict(
-        type='ResNet',
-        depth=101,
-        num_stages=4,
-        out_indices=(0, 1, 2, 3),
-        frozen_stages=1,
-        norm_cfg=dict(type='BN', requires_grad=False),
-        style='caffe'),
+        type='VoVNet27Slim',
+        activation='relu',
+        out_indices=(1, 2, 3, 4)),
     neck=dict(
-        type='FPN',
-        in_channels=[256, 512, 1024, 2048],
-        out_channels=256,
-        start_level=1,
-        add_extra_convs=True,
-        extra_convs_on_inputs=False,  # use P5
+        type='BIFPN',
+        in_channels=[128, 256, 384, 512],
         num_outs=5,
-        relu_before_extra_convs=True),
+        out_channels=128
+    ),
     bbox_head=dict(
         type='FCOSHead',
         num_classes=81,
         in_channels=256,
         stacked_convs=4,
-        feat_channels=256,
+        feat_channels=128,
         strides=[8, 16, 32, 64, 128],
         loss_cls=dict(
             type='FocalLoss',

@@ -1,54 +1,52 @@
 # model settings
-from pathlib import Path
 model = dict(
-    type='TTFNet',
+    type='FCOS',
     pretrained='/mnt/nfs/Other/pytorch_pretrained_backbones/vovnet27_slim/vovnet27_slim__21_12_19__02_07_52.pth',
     backbone=dict(
         type='VoVNet27Slim',
-        activation='mish',
+        activation='relu',
         out_indices=(1, 2, 3, 4)),
-    neck=None,
+    neck=dict(
+        type='BIFPN',
+        in_channels=[128, 256, 384, 512],
+        num_outs=5,
+        out_channels=128
+    ),
     bbox_head=dict(
-        type='TTFHead',
-        inplanes=[128, 256, 384, 512],
-        head_conv=128,
-        wh_conv=64,
-        hm_head_conv_num=2,
-        wh_head_conv_num=1,
-        num_classes=7,
-        wh_offset_base=16,
-        wh_agnostic=True,
-        wh_gaussian=True,
-        norm_cfg=dict(type='BN'),
-        alpha=0.54,
-        hm_weight=1.,
-        wh_weight=5.,
-        max_objs=32,
-        receptive_field_layer='conv'))
-cudnn_benchmark = True
+        type='FCOSHead',
+        num_classes=6,
+        in_channels=128,
+        stacked_convs=4,
+        feat_channels=256,
+        strides=[8, 16, 32, 64, 128],
+        loss_cls=dict(
+            type='FocalLoss',
+            use_sigmoid=True,
+            gamma=2.0,
+            alpha=0.25,
+            loss_weight=1.0),
+        loss_bbox=dict(type='IoULoss', loss_weight=1.0),
+        loss_centerness=dict(
+            type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0)))
 # training and testing settings
 train_cfg = dict(
-    vis_every_n_iters=100,
-    debug=False,
-    distillation=dict(
-        # backbone_levels=[
-        #     dict(idx=0, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div'),
-        #     dict(idx=1, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div'),
-        #     dict(idx=2, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div'),
-        #     dict(idx=3, student_sigmoid=True, teacher_sigmoid=True, coeff=1., loss='js_div')
-        # ],
-        backbone_levels=[],
-        head_levels=[
-            dict(idx=0, student_sigmoid=False, teacher_sigmoid=True, coeff=1, loss='js_div'),
-            dict(idx=1, student_sigmoid=True, teacher_sigmoid=True, coeff=1, loss='js_div'),
-        ]
-    )
-)
+    assigner=dict(
+        type='MaxIoUAssigner',
+        pos_iou_thr=0.5,
+        neg_iou_thr=0.4,
+        min_pos_iou=0,
+        ignore_iof_thr=-1),
+    allowed_border=-1,
+    pos_weight=-1,
+    debug=False)
 test_cfg = dict(
-    score_thr=0.01,
-    max_per_img=32)
+    nms_pre=1000,
+    min_bbox_size=0,
+    score_thr=0.05,
+    nms=dict(type='nms', iou_thr=0.5),
+    max_per_img=100)
 # dataset settings
-width, height = 416, 320
+width, height = 128, 96
 albu_center_crop_pad = [
     dict(type='ToGray', p=0.2),
     dict(type='JpegCompression', quality_lower=50, quality_upper=100,),
@@ -82,11 +80,9 @@ train_pipeline = [
     dict(type='AugMix', with_js_loss=False),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='DefaultFormatBundle'),
-    dict(type='Collect', keys=['img',
-                               # 'img_augmix_0', 'img_augmix_1',
-                               'gt_bboxes', 'gt_labels']),
+    dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels']),
 ]
-width, height = 416, 320
+width, height = 128, 96
 test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
@@ -103,8 +99,8 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=16,
-    workers_per_gpu=8,
+    imgs_per_gpu=32,
+    workers_per_gpu=16,
     train=dict(
         type=dataset_type,
         ann_file='./data_loader.py',
@@ -131,14 +127,14 @@ optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 lr_config = dict(
     policy='torch',
     torch_scheduler='OneCycleLR',
-    max_lr=0.0117)
+    max_lr=0.02)
 checkpoint_config = dict(interval=4)
 # runtime settings
 total_epochs = 100
 device_ids = range(8)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = './work_dirs/ttfnet'
+work_dir = './work_dirs/centernet'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]
@@ -146,44 +142,5 @@ log_config = dict(
     interval=30,
     hooks=[
         dict(type='TextLoggerHook'),
-        dict(type='WandbLoggerHook', project='lpr5_vehicle', config_filename=Path.absolute(Path(__file__)))
+        # dict(type='WandbLoggerHook', project='lpr5_vehicle', config_filename=Path.absolute(Path(__file__)))
     ])
-# extra_hooks = [
-#     dict(type='KnowledgeDistillationHook',
-#          # image_meta_to_update='plain',
-#          teacher_model_config=dict(
-#              type='TTFNet',
-#              pretrained=None,
-#              backbone=dict(
-#                  type='VoVNet39',
-#                  activation='mish',
-#                  out_indices=(1, 2, 3, 4)),
-#              neck=dict(
-#                  type='BIFPN',
-#                  in_channels=[256, 512, 768, 1024],
-#                  num_outs=4,
-#                  out_channels=256
-#              ),
-#              bbox_head=dict(
-#                  type='TTFHead',
-#                  build_neck=True,
-#                  inplanes=[256, 256, 256, 256],
-#                  head_conv=128,
-#                  wh_conv=64,
-#                  hm_head_conv_num=2,
-#                  wh_head_conv_num=1,
-#                  num_classes=6,
-#                  wh_offset_base=16,
-#                  wh_agnostic=True,
-#                  wh_gaussian=True,
-#                  norm_cfg=dict(type='BN'),
-#                  alpha=0.54,
-#                  hm_weight=1.,
-#                  wh_weight=5.,
-#                  max_objs=32,
-#                  receptive_field_layer='conv')),
-#          test_cfg=dict(
-#              score_thr=0.3,
-#              max_per_img=32),
-#          model_checkpoint_path=Path('./work_dirs/ttfnet/teacher_160_96.pth')),
-# ]
