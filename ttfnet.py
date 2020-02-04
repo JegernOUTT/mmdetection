@@ -17,7 +17,7 @@ model = dict(
         wh_head_conv_num=1,
         num_classes=7,
         wh_offset_base=16,
-        wh_agnostic=True,
+        wh_agnostic=False,
         wh_gaussian=True,
         norm_cfg=dict(type='BN'),
         alpha=0.54,

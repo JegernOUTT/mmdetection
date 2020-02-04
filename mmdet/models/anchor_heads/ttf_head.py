@@ -492,14 +492,19 @@ class TTFHead(AnchorHead):
             shifts_y = torch.arange(0, (H - 1) * base_step + 1, base_step,
                                     dtype=torch.float32, device=heatmap.device)
             shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
-            self.base_loc = torch.stack((shift_x, shift_y), dim=0)  # (2, h, w)
+            self.base_loc = torch.stack((shift_x, shift_y), dim=0).view(2, 1, H, W)  # (2, h, w)
 
         # (batch, h, w, 4)
+        pred_wh = pred_wh.view(-1, 4, self.num_classes - 1, H, W)
         pred_boxes = torch.cat((self.base_loc - pred_wh[:, [0, 1]],
-                                self.base_loc + pred_wh[:, [2, 3]]), dim=1).permute(0, 2, 3, 1)
+                                self.base_loc + pred_wh[:, [2, 3]]), dim=1)\
+            .view(-1, 4 * (self.num_classes - 1), H, W).permute(0, 2, 3, 1)
         # (batch, h, w, 4)
         boxes = box_target.permute(0, 2, 3, 1)
-        wh_loss = diou_loss(pred_boxes, boxes, mask, avg_factor=avg_factor) * self.wh_weight
+        wh_loss = diou_loss(pred_boxes.view(-1, H, W, self.num_classes - 1, 4),
+                            boxes.view(-1, H, W, self.num_classes - 1, 4),
+                            wh_weight.permute(0, 2, 3, 1).view(-1, H, W, self.num_classes - 1),
+                            avg_factor=avg_factor) * self.wh_weight
 
         return hm_loss, wh_loss
 
