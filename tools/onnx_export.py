@@ -66,7 +66,7 @@ def main():
 
     onnx_symbolic.upsample_nearest2d = upsample_nearest2d
 
-    output_h, output_w = 96, 128
+    output_h, output_w = 320, 416
     assert 'forward_export' in model.__dir__()
     model.forward = model.forward_export
     with torch.no_grad():

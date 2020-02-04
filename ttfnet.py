@@ -5,7 +5,7 @@ model = dict(
     pretrained='/mnt/nfs/Other/pytorch_pretrained_backbones/vovnet27_slim/vovnet27_slim__21_12_19__02_07_52.pth',
     backbone=dict(
         type='VoVNet27Slim',
-        activation='mish',
+        activation='relu',
         out_indices=(1, 2, 3, 4)),
     neck=None,
     bbox_head=dict(
@@ -146,7 +146,7 @@ log_config = dict(
     interval=30,
     hooks=[
         dict(type='TextLoggerHook'),
-        dict(type='WandbLoggerHook', project='lpr5_vehicle', config_filename=Path.absolute(Path(__file__)))
+        # dict(type='WandbLoggerHook', project='lpr5_vehicle', config_filename=Path.absolute(Path(__file__)))
     ])
 # extra_hooks = [
 #     dict(type='KnowledgeDistillationHook',

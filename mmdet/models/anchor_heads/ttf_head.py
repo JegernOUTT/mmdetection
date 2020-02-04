@@ -87,7 +87,7 @@ class TTFHead(AnchorHead):
 
         # heads
         self.wh = self.build_head(self.wh_planes, wh_head_conv_num, wh_conv)
-        self.hm = self.build_head(1 + self.num_fg, hm_head_conv_num)
+        self.hm = self.build_head(self.num_fg, hm_head_conv_num)
 
     def build_shortcut(self,
                        inplanes,
@@ -122,7 +122,7 @@ class TTFHead(AnchorHead):
         layers = [mdcn]
         if norm_cfg:
             layers.append(build_norm_layer(norm_cfg, planes)[1])
-        layers.append(Mish())
+        layers.append(nn.ReLU(inplace=True))
         layers.append(up)
 
         return nn.Sequential(*layers)
@@ -132,8 +132,7 @@ class TTFHead(AnchorHead):
         head_conv_plane = self.head_conv if not head_conv_plane else head_conv_plane
         for i in range(conv_num):
             inp = self.planes[-1] if i == 0 else head_conv_plane
-            head_convs.append(ConvModule(inp, head_conv_plane, 3, padding=1,
-                                         norm_cfg=self.norm_cfg, activation='mish'))
+            head_convs.append(ConvModule(inp, head_conv_plane, 3, padding=1))
 
         inp = self.planes[-1] if conv_num <= 0 else head_conv_plane
         head_convs.append(nn.Conv2d(inp, out_channel, 1))
@@ -274,28 +273,28 @@ class TTFHead(AnchorHead):
              cfg,
              gt_bboxes_ignore=None):
         all_targets = self.target_generator(gt_bboxes, gt_labels, img_metas)
-        hm_objectness_loss, hm_loss, wh_loss = self.loss_calc(pred_heatmap, pred_wh, *all_targets)
-        return {'losses/ttfnet_loss_objectness': hm_objectness_loss,
-                'losses/ttfnet_loss_heatmap': hm_loss,
-                'losses/ttfnet_loss_wh': wh_loss}
+        hm_loss, wh_loss = self.loss_calc(pred_heatmap, pred_wh, *all_targets)
+        return {'losses/ttfnet_loss_heatmap': hm_loss, 'losses/ttfnet_loss_wh': wh_loss}
 
     def _topk(self, scores, topk):
-        confs = scores[:, [0], ...]
-        scores = scores[:, 1:, ...]
         batch, cat, height, width = scores.size()
 
         # both are (batch, 80, topk)
-        topk_scores, topk_inds = torch.topk(confs.view(batch, -1), topk)
+        topk_scores, topk_inds = torch.topk(scores.view(batch, cat, -1), topk)
 
         topk_inds = topk_inds % (height * width)
         topk_ys = (topk_inds / width).int().float()
         topk_xs = (topk_inds % width).int().float()
 
         # both are (batch, topk). select topk from 80*topk
-        # real_top_scores = topk_scores.sum(dim=1)
-        topk_clses = scores.view(batch, cat, -1).gather(2, topk_inds.repeat(1, cat, 1)).argmax(dim=1)
+        topk_score, topk_ind = torch.topk(topk_scores.view(batch, -1), topk)
+        topk_clses = (topk_ind / topk).int()
+        topk_ind = topk_ind.unsqueeze(2)
+        topk_inds = topk_inds.view(batch, -1, 1).gather(1, topk_ind).view(batch, topk)
+        topk_ys = topk_ys.view(batch, -1, 1).gather(1, topk_ind).view(batch, topk)
+        topk_xs = topk_xs.view(batch, -1, 1).gather(1, topk_ind).view(batch, topk)
 
-        return topk_scores, topk_inds, topk_clses, topk_ys, topk_xs
+        return topk_score, topk_inds, topk_clses, topk_ys, topk_xs
 
     def gaussian_2d(self, shape, sigma_x=1, sigma_y=1):
         m, n = [(ss - 1.) / 2. for ss in shape]
@@ -342,7 +341,7 @@ class TTFHead(AnchorHead):
         output_h, output_w = feat_shape
         heatmap_channel = self.num_fg
 
-        heatmap = gt_boxes.new_zeros((1 + heatmap_channel, output_h, output_w))
+        heatmap = gt_boxes.new_zeros((heatmap_channel, output_h, output_w))
         fake_heatmap = gt_boxes.new_zeros((output_h, output_w))
         box_target = gt_boxes.new_ones((self.wh_planes, output_h, output_w)) * -1
         reg_weight = gt_boxes.new_zeros((self.wh_planes // 4, output_h, output_w))
@@ -401,8 +400,7 @@ class TTFHead(AnchorHead):
             fake_heatmap = fake_heatmap.zero_()
             self.draw_truncate_gaussian(fake_heatmap, ct_ints[k],
                                         h_radiuses_alpha[k].item(), w_radiuses_alpha[k].item())
-            heatmap[0] = torch.max(heatmap[0], fake_heatmap)
-            heatmap[cls_id + 1] = torch.max(heatmap[cls_id + 1], fake_heatmap)
+            heatmap[cls_id] = torch.max(heatmap[cls_id], fake_heatmap)
 
             if self.wh_gaussian:
                 if self.alpha != self.beta:
@@ -482,8 +480,7 @@ class TTFHead(AnchorHead):
         """
         H, W = pred_hm.shape[2:]
         pred_hm = torch.clamp(pred_hm.sigmoid_(), min=1e-4, max=1 - 1e-4)
-        hm_objectness_loss = ct_focal_loss(pred_hm[:, [0], ...], heatmap[:, [0], ...])
-        hm_loss = ct_focal_loss(pred_hm[:, 1:, ...], heatmap[:, 1:, ...]) * self.hm_weight
+        hm_loss = ct_focal_loss(pred_hm, heatmap) * self.hm_weight
 
         mask = wh_weight.view(-1, H, W)
         avg_factor = mask.sum() + 1e-4
@@ -504,7 +501,7 @@ class TTFHead(AnchorHead):
         boxes = box_target.permute(0, 2, 3, 1)
         wh_loss = diou_loss(pred_boxes, boxes, mask, avg_factor=avg_factor) * self.wh_weight
 
-        return hm_objectness_loss, hm_loss, wh_loss
+        return hm_loss, wh_loss
 
 
 class ShortcutConv2d(nn.Module):
@@ -520,10 +517,9 @@ class ShortcutConv2d(nn.Module):
         layers = []
         for i, (kernel_size, padding) in enumerate(zip(kernel_sizes, paddings)):
             inc = in_channels if i == 0 else out_channels
-            layers.append(nn.Conv2d(inc, out_channels, kernel_size, padding=padding, bias=False))
-            layers.append(nn.BatchNorm2d(out_channels))
+            layers.append(nn.Conv2d(inc, out_channels, kernel_size, padding=padding))
             if i < len(kernel_sizes) - 1 or activation_last:
-                layers.append(Mish())
+                layers.append(nn.ReLU(inplace=True))
 
         self.layers = nn.Sequential(*layers)
 
